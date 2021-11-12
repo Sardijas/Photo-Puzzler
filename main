@@ -1,0 +1,388 @@
+from inspect import currentframe
+from PIL import Image
+#Will get rid of later
+from colorthief import ColorThief
+import math, copy, random, time, tkinter
+import cv2 as cv
+
+from cmu_112_graphics import *
+
+#Inspired by notes
+# https://www.cs.cmu.edu/~112/notes/notes-animations-part4.html#loadImageUsingFile
+
+# For resizing:
+# https://docs.opencv.org/4.5.4/da/d54/group__imgproc__t
+# ransform.html#ga47a974309e9102f5f08231edc7e7529d
+# https://www.pyimagesearch.com/2021/01/20/opencv-resize-image-cv2-resize/
+# https://www.tutorialspoint.com/using-opencv-with-tkinter
+
+#Talked to greater cole
+#Talked to xinyi
+
+def appStarted(app):
+    #Viewport 
+    app.widthMargin = app.width // 7
+    app.heightMargin = app.height // 10
+    app.maxWidth = app.width - 2 * app.widthMargin
+    app.maxHeight = app.height - 2 * app.heightMargin
+
+    #Photo init
+    filename = '2.jpeg'
+    app.rawPhoto = cv.imread(filename)
+    app.photoArray = resizeImage(app)
+    app.photo = Image.fromarray(app.photoArray)
+
+    #Palette init
+    app.paletteSize = 5
+    app.palette = getPalette(app, filename)
+    app.radius = (app.heightMargin * (2/3)) / 2
+    app.colorData = placeColors(app)
+
+    #Maybe make this controllable, max 48/48
+    #Set up grid
+    app.rows = 30
+    app.cols = 25
+    app.answerGrid = getGrid(app)
+    app.solutionGrid = getSolution(app)
+
+    #gradient in a pixel
+    #Gaussian blur??
+
+    #Hints init
+    app.hintRows, app.hintCols = getHints(app)
+
+    #Brush init
+    app.brushColor = None
+
+    #Error init
+    app.isError = False
+    app.errors = set([])
+    
+
+#Goal: replace w/ my own algorithm
+#https://github.com/fengsp/color-thief-py
+def getPalette(app, filename):
+
+    color_thief = ColorThief(filename)
+    return color_thief.get_palette(color_count=app.paletteSize)
+
+def resizeImage(app):
+
+    #Size up
+    if (len(app.rawPhoto) > app.maxHeight 
+        or len(app.rawPhoto) > app.maxWidth):
+        interpolation = cv.INTER_AREA
+
+    #Size down
+    else:
+        interpolation = cv.INTER_CUBIC
+
+    #Create destination array
+    app.stage = (app.maxWidth, app.maxHeight)
+
+    #Resize image into destination array
+    img = cv.resize(app.rawPhoto, app.stage, 
+         interpolation)
+
+    return  img
+
+
+def getGrid(app):
+    grid = []
+
+    for row in range(app.rows):
+        currentRow = []
+        for col in range(app.cols):
+            currentRow.append(None)
+
+        grid.append(currentRow)
+
+    return grid
+
+def getSolution(app):
+    solution = []
+
+    for row in range(app.rows):
+        currentRow = []
+        for col in range(app.cols):
+            currentRow.append(getColor(app, row, col))
+
+        solution.append(currentRow)
+
+    return solution
+
+def getColor(app, row, col):
+    cellWidth = app.maxWidth / app.cols
+    cellHeight = app.maxHeight / app.rows
+
+    x1 = col * cellWidth
+    y1 = row * cellHeight
+
+    x2 = x1 + cellWidth
+    y2 = y1 + cellHeight
+
+    cx = int(x1 + (x2 - x1) // 2)
+    cy = int(y1 + (y2 - y1) // 2)
+
+    cell = cv.getRectSubPix(app.photoArray, 
+        (int(cellWidth), int(cellHeight)), (cx, cy))
+
+    blue = 0
+    green = 0
+    red = 0
+
+    count = 0
+
+    #numpy for pixel averages - efficient could be complex
+    for row in range(len(cell)):
+        for col in range(len(cell[0])):
+            pixel = cell[row][col]
+            blue += pixel[0]
+            green += pixel[1]
+            red += pixel[2]
+
+            count += 1
+
+    blue //= count
+    green //= count
+    red //= count
+
+    closestColor = None
+    closestDistance = None
+
+    #Get rid of euclidean
+    #https://en.wikipedia.org/wiki/Color_difference
+    for color in app.palette:
+        distance = math.sqrt( (color[0] - red)**2 + (color[1] - green)**2 
+            + (color[2] - blue)**2)
+
+        if (closestColor == None or distance < closestDistance):
+            closestColor = color
+            closestDistance = distance
+
+    return rgbToHex(closestColor)
+
+
+#https://docs.python.org/3/library/functions.html#hex
+def rgbToHex(rgb):
+
+    red = '%X' % rgb[0]
+    green = '%X' % rgb[1]
+    blue = '%X' % rgb[2]
+
+    if (len(red) < 2):
+        red = "0" + red
+
+    if (len(blue) < 2):
+        blue = "0" + blue
+
+    if (len(green) < 2):
+        green = "0" + green
+
+    hex = "#" + red + green + blue
+
+    return hex
+
+
+def getHints(app):
+
+    hintRows = []
+    hintCols = []
+
+    colHelper = []
+    
+    for col in range(app.cols):
+        hintCols.append([])
+        #Appends currentColColor, currentColCount
+        colHelper.append([None, 0])
+
+    for row in range(app.rows):
+        currentRowColor = None
+        currentRowCount = 0
+
+        rowCollector = []
+
+        for col in range(app.cols):
+            cellColor = app.solutionGrid[row][col]
+
+            if (cellColor == currentRowColor):
+                currentRowCount += 1
+                if (col == app.cols - 1):
+                    rowCollector.append((currentRowColor, currentRowCount))
+
+            else:
+                if (currentRowColor != None):
+                    rowCollector.append((currentRowColor, currentRowCount))
+
+                currentRowColor = cellColor
+                currentRowCount = 1
+
+            if (cellColor == colHelper[col][0]):
+                colHelper[col][1] += 1
+                if (row == app.rows - 1):
+                    hintCols[col].append((colHelper[col][0], colHelper[col][1]))
+
+            else:
+                if (colHelper[col][0] != None):
+                    hintCols[col].append((colHelper[col][0], colHelper[col][1]))
+
+                colHelper[col][0] = cellColor
+                colHelper[col][1] = 1
+
+        random.shuffle(rowCollector)
+        hintRows.append(rowCollector)
+
+    for col in hintCols:
+        random.shuffle(col)
+
+    
+
+    return hintRows, hintCols
+
+def drawGrid(app, canvas):
+    for row in range(app.rows):
+        for col in range(app.cols):
+            drawCell(app, canvas, row, col)
+
+
+def drawCell(app, canvas, row, col):
+    color = app.answerGrid[row][col]
+
+    cellWidth = app.maxWidth / app.cols
+    cellHeight = app.maxHeight / app.rows
+
+    x1 = app.widthMargin + col * cellWidth
+    y1 = app.heightMargin + row * cellHeight
+    x2 = x1 + cellWidth
+    y2 = y1 + cellHeight
+
+    if (color != None):
+        canvas.create_rectangle(x1, y1, x2, y2, width = 2, fill = color)
+
+        if ((row, col) in app.errors):
+            canvas.create_rectangle(x1 + 2, y1 + 2, x2 - 2, y2 - 2, width = 2, outline = "red")
+
+    else:
+        canvas.create_rectangle(x1, y1, x2, y2, width = 2)
+
+
+#Doesn't work well at all for photos with lots of '1' patterns
+def drawHints(app, canvas):
+
+    rowHintWidth = app.widthMargin / len(app.hintRows[0])
+    rowHintHeight = app.maxHeight / app.rows
+
+    colHintHeight = app.heightMargin / len(app.hintCols[0])
+    colHintWidth = app.maxWidth / app.cols
+
+    for i in range(len(app.hintRows)):
+        hintCount = 0
+        y1 = app.heightMargin + rowHintHeight * (i + 1) - rowHintHeight // 2
+        for hint in app.hintRows[i]:
+            x1 = app.widthMargin - rowHintWidth * hintCount - rowHintWidth // 2
+
+            canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
+
+            hintCount += 1
+    
+    for i in range(len(app.hintCols)):
+        hintCount = 0
+        x1 = app.widthMargin + colHintWidth * (i + 1) - colHintWidth // 2
+        for hint in app.hintCols[i]:
+            y1 = app.heightMargin - colHintHeight * hintCount - colHintHeight // 2
+
+            canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
+
+            hintCount += 1
+
+
+def placeColors(app):
+    colorData = []
+
+    circleX = app.maxWidth / ( len(app.palette) - 1)
+    colorCount = 0    
+
+    y1 = app.height - app.radius * 2
+
+    for color in app.palette:
+        x1 = app.widthMargin + circleX * colorCount - app.radius / 2
+        colorData.append((x1, y1, x1 + app.radius, y1 + app.radius, rgbToHex(color)))
+
+        colorCount += 1
+
+    return colorData
+
+# def roundUp(num):
+#     if (num % 1 != 0):
+#         return (num + 1) // 1
+
+#     return num
+
+def verify(app):
+    for i in range(app.rows):
+        for j in range(app.cols):
+
+            if ( (app.answerGrid[i][j] != None) and (app.answerGrid[i][j] != app.solutionGrid[i][j])):
+                app.errors.add((i, j))
+
+            elif( (i, j) in app.errors):
+                app.errors.remove((i, j))
+
+    if (len(app.errors) == 0):
+        app.isError = False
+    else:
+        app.isError = True
+
+
+def mousePressed(app, event):
+    cx = event.x
+    cy = event.y
+
+    if (cy > app.height - app.heightMargin):
+
+        for color in app.colorData:
+            if ((color[0] <= cx <= color[2]) and 
+                (color[1] <= cy <= color[3])):
+                app.brushColor = color[4]
+
+
+    elif ((app.heightMargin < cy < app.height - app.heightMargin) and
+        (app.widthMargin < cx < app.width - app.widthMargin)):
+
+        cellWidth = app.maxWidth / app.cols
+        cellHeight = app.maxHeight / app.rows
+
+        row = int( (cy - app.heightMargin) // cellHeight )
+        col = int( (cx - app.widthMargin) // cellWidth ) 
+
+        if ( (app.brushColor != None) and (app.answerGrid[row][col] != app.brushColor) ):
+            app.answerGrid[row][col] = app.brushColor
+        elif ( (app.brushColor != None) and (app.answerGrid[row][col] == app.brushColor) ):
+            app.answerGrid[row][col] = None
+
+        verify(app)
+
+
+
+def drawColors(app, canvas):
+
+    for color in app.colorData:
+        canvas.create_oval(color[0], color[1], color[2], color[3], fill=color[4])
+
+
+def redrawAll(app, canvas):
+    canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.photo))
+    
+    drawGrid(app, canvas)
+    drawHints(app, canvas)
+    drawColors(app, canvas)
+
+    # canvas.create_text(597, 761, text="Hi", fill="red")
+
+    # canvas.create_rectangle(app.widthMargin, app.heightMargin, 
+    #     app.width - app.widthMargin, app.height - app.heightMargin, fill="blue")
+
+def playGame():
+    runApp(width=800, height=850)
+
+playGame()
