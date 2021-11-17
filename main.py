@@ -30,7 +30,6 @@ def appStarted(app):
     app.maxHeight = app.height - 2 * app.heightMargin
 
     #Photo init
-    filename = '2.jpg'
     app.rawPhoto = cv.imread(app.filename)
     app.photoArray = resizeImage(app)
     app.photo = Image.fromarray(app.photoArray)
@@ -46,6 +45,7 @@ def appStarted(app):
     app.cols = 25
     app.answerGrid = getGrid(app)
     app.solutionGrid = getSolution(app)
+    app.emptyGrid = getGrid(app)
 
     #Final palette init
     app.radius = (app.heightMargin * (2/3)) / 2
@@ -65,13 +65,59 @@ def appStarted(app):
     app.isError = False
     app.errors = set([])
 
+    #Win state init
+    app.isWin = False
+    # app.rawWinCover = cv.imread('blank.png')
+    # app.winCoverArray = resizeWinCover(app, app.rawWinCover)
+    app.blurredImageArray = blurImage(app)
+    app.blurredImage = Image.fromarray(app.blurredImageArray)
+    app.titleFont = tkinter.font.Font(family='Helvetica', size=48, weight='bold')
+
 #Init##########################################################################
+
+#https://docs.opencv.org/3.4/d4/d13/tutorial_py_filtering.html
+def blurImage(app):
+    #Create destination array
+
+    # resizedOriginal = resizeWinCover(app, app.photoArray)
+
+    # alphaImage = cv.addWeighted(app.winCoverArray, 0.2, resizedOriginal, 0.6, 0, app.stage)
+    rgbImage = cv.cvtColor(app.photoArray, cv.COLOR_BGR2RGBA)
+    blurredImage = cv.GaussianBlur(rgbImage, (21, 21), 0)
+
+    # for row in blurredImage:
+    #     for pixel in row:
+    #         pixel.append(0.5)
+
+    #     print(row)
+
+    return blurredImage
+
+# #Functionality tho
+# def resizeWinCover(app, toResize):
+#     #Size up??
+#     if (len(toResize) > app.height
+#         or len(toResize) > app.width):
+#         interpolation = cv.INTER_AREA
+
+#     #Size down
+#     else:
+#         interpolation = cv.INTER_CUBIC
+
+#     #Create destination array
+#     app.stage = (app.width, app.height)
+
+#     #Resize image into destination array
+#     img = cv.resize(toResize, app.stage, 
+#          interpolation)
+
+#     return  img
 
 def resizeImage(app):
 
-    #Size up
+    #Size up???
     if (len(app.rawPhoto) > app.maxHeight 
-        or len(app.rawPhoto) > app.maxWidth):
+        or len(app.rawPhoto[0]) > app.maxWidth):
         interpolation = cv.INTER_AREA
 
     #Size down
@@ -365,7 +411,7 @@ def placeColors(app):
         colorCount = 0    
     else:
         circleX = app.maxWidth / 2
-        colorCount = 1    
+        colorCount = 1 
 
 
     y1 = app.height - app.radius * 2
@@ -418,32 +464,37 @@ def paint(app, cx, cy, drag):
 
         verify(app)
 
+    if (app.answerGrid == app.solutionGrid):
+        app.isWin = True
+
 #Events########################################################################
 
 def mouseDragged(app, event):
     cx = event.x
     cy = event.y
 
-    paint(app, cx, cy, True)
+    if (not app.isWin):
+        paint(app, cx, cy, True)
 
 def mousePressed(app, event):
     cx = event.x
     cy = event.y
 
-    paint(app, cx, cy, False)
+    if (not app.isWin):
+        paint(app, cx, cy, False)
 
 
 #Draw##########################################################################
 
 
-def drawGrid(app, canvas):
+def drawGrid(app, canvas, grid):
     for row in range(app.rows):
         for col in range(app.cols):
-            drawCell(app, canvas, row, col)
+            drawCell(app, canvas, grid, row, col)
 
 
-def drawCell(app, canvas, row, col):
-    color = app.solutionGrid[row][col]
+def drawCell(app, canvas, grid, row, col):
+    color = grid[row][col]
 
     cellWidth = app.maxWidth / app.cols
     cellHeight = app.maxHeight / app.rows
@@ -501,14 +552,21 @@ def drawColors(app, canvas):
 def redrawAll(app, canvas):
     canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.photo))
     
-    drawGrid(app, canvas)
+    drawGrid(app, canvas, app.answerGrid)
     drawHints(app, canvas)
     drawColors(app, canvas)
 
-    # canvas.create_text(597, 761, text="Hi", fill="red")
+    if (app.isWin):
+        canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.blurredImage))
+   
+        drawGrid(app, canvas, app.emptyGrid)
 
-    # canvas.create_rectangle(app.widthMargin, app.heightMargin, 
-    #     app.width - app.widthMargin, app.height - app.heightMargin, fill="blue")
+        canvas.create_rectangle(app.maxWidth / 2 - app.widthMargin / 2, 
+            app.height / 2 - app.heightMargin / 2, 
+            app.widthMargin * 2.5 + app.maxWidth / 2, 
+            app.height / 2 + app.heightMargin / 2, fill="white")
+
+        canvas.create_text(app.width // 2, app.height // 2, text="YOU WIN!", fill="black", font=app.titleFont)
 
 def playPuzzle(file):
     runApp(width=800, height=850, filename=file)
