@@ -5,6 +5,8 @@
 
 # Require Python 3.6 or later
 import sys
+
+from numpy.core.fromnumeric import nonzero
 if ((sys.version_info[0] != 3) or (sys.version_info[1] < 6)):
     raise Exception('cmu_112_graphics.py requires Python version 3.6 or later.')
 
@@ -265,7 +267,7 @@ class App(object):
     # Implementation:
     ####################################
 
-    def __init__(app, width=300, height=300, x=0, y=0, title=None, autorun=True, mvcCheck=True, logDrawingCalls=True):
+    def __init__(app, width=300, height=300, x=0, y=0, title=None, autorun=True, mvcCheck=True, logDrawingCalls=True, filename=nonzero):
         app.winx, app.winy, app.width, app.height = x, y, width, height
         app.timerDelay = 100     # milliseconds
         app.mouseMovedDelay = 50 # ditto
@@ -274,6 +276,7 @@ class App(object):
         app._logDrawingCalls = logDrawingCalls
         app._running = app._paused = False
         app._mousePressedOutsideWindow = False
+        app.filename = filename
         if autorun: app.run()
 
     def __repr__(app):
