@@ -144,7 +144,7 @@ def getPalette(app, filename):
 
     # num = len(app.photoArray[0])
 
-    # yes = medianCut(bucket, 0, 8)
+    # yes = medianCut(bucket, 0, 4)
 
     # return yes
 
@@ -185,7 +185,7 @@ def getAverage(bucket):
     green //= count
     blue //= count
 
-    return [red, green, blue]
+    return [blue, green, red]
 
 
 def sortBucket(bucket):
@@ -237,8 +237,6 @@ def sortBucket(bucket):
     #https://www.w3schools.com/python/ref_func_sorted.asp
     #https://docs.python.org/3/howto/sorting.html
     sortedList = sorted(bucket, key=lambda element: element[greatestRange])
-
-    print(greatestRange, sortedList[0], sortedList[-1])
 
     return sortedList
 
@@ -332,13 +330,14 @@ def getHints(app):
     
     for col in range(app.cols):
         hintCols.append([])
-        #Appends currentColColor, currentColCount
-        colHelper.append([None, 0])
+        #Appends currentColColor, currentColCount, startRow
+        colHelper.append([None, 0, 0])
 
     for row in range(app.rows):
         currentRowColor = None
         currentRowCount = 0
-
+        startCol = 0
+    
         rowCollector = []
 
         for col in range(app.cols):
@@ -347,28 +346,30 @@ def getHints(app):
             if (cellColor == currentRowColor):
                 currentRowCount += 1
                 if (col == app.cols - 1):
-                    rowCollector.append((currentRowColor, currentRowCount))
+                    rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
 
             else:
                 if (currentRowColor != None):
-                    rowCollector.append((currentRowColor, currentRowCount))
+                    rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
 
                 currentRowColor = cellColor
                 currentRowCount = 1
+                startCol = col
 
             if (cellColor == colHelper[col][0]):
                 colHelper[col][1] += 1
                 if (row == app.rows - 1):
-                    hintCols[col].append((colHelper[col][0], colHelper[col][1]))
+                    hintCols[col].append([colHelper[col][0], colHelper[col][1], colHelper[col][2], 1])
 
             else:
                 if (colHelper[col][0] != None):
-                    hintCols[col].append((colHelper[col][0], colHelper[col][1]))
+                    hintCols[col].append([colHelper[col][0], colHelper[col][1], colHelper[col][2], 1])
 
                 colHelper[col][0] = cellColor
                 colHelper[col][1] = 1
+                colHelper[col][2] = row
 
-        hintRowsSorted.append(rowCollector)
+        hintRowsSorted.append(copy.copy(rowCollector))
 
         random.shuffle(rowCollector)
         hintRows.append(rowCollector)
@@ -378,6 +379,35 @@ def getHints(app):
         random.shuffle(col)
 
     return hintRows, hintCols, hintRowsSorted, hintColsSorted
+
+def getOddHint(row):
+    hintPriorityList = sorted(row, key=lambda element: element[1])
+    return hintPriorityList[0]
+
+def trimHints(app):
+    problemRows = []
+    problemCols = []
+
+    for i in range(len(app.hintRows)):
+        if (len(app.hintRows[i]) > 5):
+            oddRowCopy = copy.copy(app.hintRows[i])
+            for j in range(len(app.hintRows[i]) - 5):
+                oddHint = getOddHint(oddRowCopy)
+                problemRows.append((i, oddHint))
+                oddRowCopy.remove(oddHint)
+
+    
+    for i in range(len(app.hintCols)):
+        if (len(app.hintCols[i]) > 5):
+            oddColCopy = copy.copy(app.hintCols[i])
+            for j in range(len(app.hintCols[i]) - 5):
+                oddHint = getOddHint(oddColCopy)
+                problemCols.append((i, oddHint))
+                oddColCopy.remove(oddHint)
+
+    # for problemHint in problemRows:
+    #     #My thought is change to a neighboring color that is in both row and col
+
 
 
 #Model#########################################################################
@@ -463,9 +493,35 @@ def paint(app, cx, cy, drag):
             app.answerGrid[row][col] = None
 
         verify(app)
+        if (not (row, col) in app.errors):
+            syncHints(app, app.brushColor, row, col)
 
     if (app.answerGrid == app.solutionGrid):
         app.isWin = True
+
+#Can't tell if you overwrite something
+def syncHints(app, color, row, col):
+    for row in range(app.rows):
+        for hint in app.hintRows[row]:
+            if ((app.answerGrid[row])[hint[2]:hint[2] + hint[1]] ==
+                (app.solutionGrid[row])[hint[2]:hint[2] + hint[1]]):
+                hint[3] = 0
+            else: 
+                hint[3] = 1
+
+    for col in range(app.cols):
+        for hint in app.hintCols[col]:
+            answerCol = []
+            solutionCol = []
+            for row in range(app.rows):
+                answerCol.append(app.answerGrid[row][col])
+                solutionCol.append(app.solutionGrid[row][col])
+
+            if (answerCol[hint[2]:hint[2] + hint[1]] ==
+                solutionCol[hint[2]:hint[2] + hint[1]]):
+                hint[3] = 0
+            else:
+                hint[3] = 1
 
 #Events########################################################################
 
@@ -517,26 +573,62 @@ def drawCell(app, canvas, grid, row, col):
 #Doesn't work well at all for photos with lots of '1' patterns
 def drawHints(app, canvas):
 
-    rowHintWidth = app.widthMargin / len(app.hintRows[0])
+    showRowHints = []
+    longestRow = None
+    showColHints = []
+    longestCol = None
+
+    for row in app.hintRows:
+        rowCollector = []
+        for hint in row:
+            if (hint[3] == 1):
+                rowCollector.append(hint)
+
+        if (longestRow == None or longestRow < len(rowCollector)):
+            longestRow = len(rowCollector)
+
+        showRowHints.append(rowCollector)
+
+    for col in app.hintCols:
+        colCollector = []
+        for hint in col:
+            if (hint[3] == 1):
+                colCollector.append(hint)
+
+        if (longestCol == None or longestCol < len(colCollector)):
+            longestCol = len(colCollector)
+
+        showColHints.append(colCollector)
+
+
+    if (longestRow != None and longestRow != 0):
+        rowHintWidth = app.widthMargin / longestRow
+    else:
+        rowHintWidth = 0
+
     rowHintHeight = app.maxHeight / app.rows
 
-    colHintHeight = app.heightMargin / len(app.hintCols[0])
+    if (longestCol != None and longestCol != 0):
+        colHintHeight = app.heightMargin / longestCol
+    else:
+        colHintHeight = 0
+    
     colHintWidth = app.maxWidth / app.cols
 
-    for i in range(len(app.hintRows)):
+    for i in range(len(showRowHints)):
         hintCount = 0
         y1 = app.heightMargin + rowHintHeight * (i + 1) - rowHintHeight // 2
-        for hint in app.hintRows[i]:
+        for hint in showRowHints[i]:
             x1 = app.widthMargin - rowHintWidth * hintCount - rowHintWidth // 2
 
             canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
 
             hintCount += 1
     
-    for i in range(len(app.hintCols)):
+    for i in range(len(showColHints)):
         hintCount = 0
         x1 = app.widthMargin + colHintWidth * (i + 1) - colHintWidth // 2
-        for hint in app.hintCols[i]:
+        for hint in showColHints[i]:
             y1 = app.heightMargin - colHintHeight * hintCount - colHintHeight // 2
 
             canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
@@ -558,7 +650,7 @@ def redrawAll(app, canvas):
 
     if (app.isWin):
         canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.blurredImage))
-   
+
         drawGrid(app, canvas, app.emptyGrid)
 
         canvas.create_rectangle(app.maxWidth / 2 - app.widthMargin / 2, 
@@ -582,3 +674,8 @@ def playPuzzle(file):
 #Maybe get grid and things to resize and move
 #Goal: solver by MVP (even bad solver)
 #Clues disappear - on click? automatically?
+
+
+
+
+#Check numpy to make things quicker, loop through board and check neigbors
