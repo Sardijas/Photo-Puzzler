@@ -1,13 +1,13 @@
-from inspect import currentframe
 from PIL import Image
 import tkinter.font
 import math, copy, random, time, tkinter
 import cv2 as cv
-# import numpy as np
 
 from cmu_112_graphics import *
 
 import main
+
+#Image Processing##############################################################################
 
 def appStarted(app):
     #Viewport
@@ -16,7 +16,9 @@ def appStarted(app):
     app.maxWidth = app.width - app.widthMargin
     app.maxHeight = app.height - 4 * app.heightMargin
 
-    #https://docs.python.org/3/library/tkinter.font.html
+    #Fonts
+    #References:
+    # https://docs.python.org/3/library/tkinter.font.html
     app.font = tkinter.font.Font(family='Helvetica', size=36, weight='bold')
     app.titleFont = tkinter.font.Font(family='Helvetica', size=48, weight='bold')
 
@@ -28,30 +30,23 @@ def appStarted(app):
     app.photo = None
     photoInit(app)
 
-#https://www.pythontutorial.net/tkinter/tkinter-open-file-dialog/
 
-def photoInit(app):
-    if (app.selectedFile != None):
-        try:
-            app.rawPhoto = cv.imread(app.selectedFile)
-            app.photoArray = resizeImage(app)
-            #https://docs.opencv.org/3.4.13/d8/d01/group__imgproc__color__
-            # conversions.html#gga4e0972be5de079fed4e3a10e24ef5ef0a95d70bf0c
-            # 1b5aa58d1eb8abf03161f21
-            app.photoArray = cv.cvtColor(app.photoArray, cv.COLOR_BGR2RGBA)
-            app.photo = Image.fromarray(app.photoArray)
-            app.photoSelected = True
-        except:
-            print("Oh no")
+#Image Processing##############################################################################
 
+#Resizes image to be displayed in photo stage
+#References:
+# https://docs.opencv.org/3.4/da/d54/group__imgproc__
+# transform.html#ga47a974309e9102f5f08231edc7e7529d
+# https://www.pyimagesearch.com/2021/01/20/opencv-resize-image-cv2-resize/
+# https://www.tutorialspoint.com/using-opencv-with-tkinter
 def resizeImage(app):
 
-    #Size up
+    #Size down
     if (len(app.rawPhoto) > (app.maxHeight - 4 * app.heightMargin)
         or len(app.rawPhoto) > (app.maxWidth - 3 * app.widthMargin)):
         interpolation = cv.INTER_AREA
 
-    #Size down
+    #Size up
     else:
         interpolation = cv.INTER_CUBIC
 
@@ -65,40 +60,88 @@ def resizeImage(app):
 
     return  img
 
+
+#File Management##############################################################################
+
+#Opens a file manager dialog for the user to select a photo
 def selectFile(app):
+    #References:
+    # #https://www.pythontutorial.net/tkinter/tkinter-open-file-dialog/
     filename = tkinter.filedialog.askopenfilename()
     app.selectedFile = filename
     photoInit(app)
 
+#Attempts to load an image file. If this fails, errors. 
+# Otherwise formats photo to display in photo stage
+def photoInit(app):
+    if (app.selectedFile != None):
+        try:
+            app.rawPhoto = cv.imread(app.selectedFile)
+            app.photoArray = resizeImage(app)
+            
+            #References:
+            # https://docs.opencv.org/3.4.13/d8/d01/group__imgproc__color__
+            # conversions.html#gga4e0972be5de079fed4e3a10e24ef5ef0a95d70bf0c
+            # 1b5aa58d1eb8abf03161f21
+            app.photoArray = cv.cvtColor(app.photoArray, cv.COLOR_BGR2RGBA)
+            app.photo = Image.fromarray(app.photoArray)
+            app.photoSelected = True
+        except:
+            print("An error occurred")
+
+        #Add handle specific exceptions
+
+
+#Handle Click##############################################################################
+
+#Handles mouse click
 def mousePressed(app, event):
     cx, cy = event.x, event.y
 
+    #If a photo has been selected, check for clicks in larger photo stage and play button
     if (app.photoSelected):
         if ((app.widthMargin < cx < app.width - app.widthMargin) and
             (app.heightMargin * 2 < cy < app.maxHeight)):
+
+            #Select photo
             selectFile(app)
+
         elif ((app.widthMargin < cx < app.width - app.widthMargin) and
             (app.heightMargin * 0.25 + app.maxHeight < cy 
             < app.heightMargin + app.maxHeight)):
-            main.playPuzzle(app.selectedFile)
 
+            #Play puzzle
+            main.playPuzzle(app.selectedFile, False)
+
+    #Otherwise check for clicks in smaller photo stage
     else:
         if ((app.widthMargin < cx < app.width - app.widthMargin) and
             (app.heightMargin * 2 < cy < app.maxHeight - app.heightMargin)):
+
+            #Select photo
             selectFile(app)
 
+
+#Draw##############################################################################
+
+#Draws start menu on the canvas
 def redrawAll(app, canvas):
+
+    #Main menu text
     canvas.create_text(app.width / 2, app.heightMargin, text="Main Menu", fill="red",
         font=app.titleFont)
 
+    #Layout if photo has been selected
     if (app.photoSelected):
 
+        #Photo stage
         canvas.create_rectangle(app.widthMargin, app.heightMargin * 2, app.maxWidth, 
             app.maxHeight, fill="blue")
         
         canvas.create_image(app.width // 2, app.height // 2 - app.heightMargin, 
             image=ImageTk.PhotoImage(app.photo))
 
+        #Play button
         canvas.create_rectangle(app.widthMargin, app.heightMargin * 0.25 + app.maxHeight, 
         app.maxWidth, app.heightMargin + app.maxHeight, fill="green")
 
@@ -107,7 +150,7 @@ def redrawAll(app, canvas):
         text="Play", fill="white", font=app.font)
 
     else:
-
+        #Photo stage
         canvas.create_rectangle(app.widthMargin, app.heightMargin * 2, app.maxWidth, 
             app.maxHeight - app.heightMargin, fill="blue")
         
@@ -115,6 +158,7 @@ def redrawAll(app, canvas):
         app.heightMargin + (app.maxHeight - app.heightMargin) / 2,
         text="Click to upload photo", fill="white", font=app.font)
         
+        #Play button
         canvas.create_rectangle(app.widthMargin, 
         app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, 
         app.maxWidth, app.maxHeight, fill="gray")
@@ -125,11 +169,13 @@ def redrawAll(app, canvas):
         (app.heightMargin * 0.25 + app.maxHeight - app.heightMargin * 2)) / 2, 
         text="Play", fill="black", font=app.font)
 
-    # canvas.create_rectangle(app.widthMargin, app.heightMargin, 
-    #     app.width - app.widthMargin, app.height - app.heightMargin, fill="blue")
+
 
 def playGame():
     runApp(width=800, height=850)
     
 
 playGame()
+
+
+#Add algorithm toggle

@@ -1,44 +1,21 @@
 from PIL import Image
-#https://pillow.readthedocs.io/en/stable/reference/ImageColor.html
 from PIL import ImageColor
-#Will get rid of later
-from colorthief import ColorThief
 import math, copy, random, time, tkinter
 import requests
 import cv2 as cv
-# import numpy as np
-
-#
-import matplotlib.pyplot as plt
 import numpy as np
-from requests.models import cookiejar_from_dict
-from skimage.io import imread
 
-# sample_img = imread('2.jpeg')
-
-#
-
-
-
+#This module is just being used for color algorithm comparison :)
+from colorthief import ColorThief
 
 from cmu_112_graphics import *
 
-import menu
+# Credit for inspiration and debugging tips:
+# Xinyi Luo, Lauren Sands, Cole Savage, 
+# Zara Mansoor, Shannon Yang, Christine Li
 
-#Inspired by notes
-# https://www.cs.cmu.edu/~112/notes/notes-animations-part4.html#loadImageUsingFile
 
-# For resizing:
-# https://docs.opencv.org/4.5.4/da/d54/group__imgproc__t
-# ransform.html#ga47a974309e9102f5f08231edc7e7529d
-# https://www.pyimagesearch.com/2021/01/20/opencv-resize-image-cv2-resize/
-# https://www.tutorialspoint.com/using-opencv-with-tkinter
-
-#http://colormind.io/api-access/
-
-#Talked to greater cole, zara, shannon, christine
-#Talked to xinyi, lauren
-
+#Init##########################################################################
 def appStarted(app):
     #Viewport
     app.widthMargin = app.width // 7
@@ -47,17 +24,27 @@ def appStarted(app):
     app.maxHeight = app.height - 2 * app.heightMargin
 
     #Photo init
+    #Reference:
+    # https://www.cs.cmu.edu/~112/notes/notes-animations-part4.html#loadImageUsingFile
     app.rawPhoto = cv.imread(app.filename)
     app.photoArray = resizeImage(app)
     app.photo = Image.fromarray(app.photoArray)
 
     #Palette init
     app.paletteSize = 5
-    app.palette = getPalette(app, app.filename)
-    app.usedPalette = set([])
-    app.counter = {}
 
-    #app.photo = Image.fromarray(app.photoArray)
+    if (not app.algorithm):
+        app.palette = getPaletteMedianCut(app)
+    else:
+        app.palette = getPaletteModifiedMedianCut(app, app.filename)
+    #^ used for calculating colors in solutionGrid
+
+    app.usedPalette = set([])
+    #^ used for drawing color buckets
+    
+    app.colorCounter = {}
+    #^ tracks frequency of each palette color
+
     #Maybe make this controllable, max 48/48
     #Set up grid
     app.rows = 30
@@ -66,12 +53,12 @@ def appStarted(app):
     app.solutionGrid = getSolution(app)
     app.emptyGrid = getGrid(app)
 
+    #Trim palette to paletteSize
     trimPalette(app)
 
     #Final palette init
     app.radius = (app.heightMargin * (2/3)) / 2
     app.colorData = placeColors(app)
-
 
     #gradient in a pixel
     #Gaussian blur??
@@ -83,65 +70,41 @@ def appStarted(app):
     app.brushColor = None
 
     #Error init
-    app.isError = False
     app.errors = set([])
 
     #Win state init
     app.isWin = False
-    # app.rawWinCover = cv.imread('blank.png')
-    # app.winCoverArray = resizeWinCover(app, app.rawWinCover)
     app.blurredImageArray = blurImage(app)
     app.blurredImage = Image.fromarray(app.blurredImageArray)
     app.titleFont = tkinter.font.Font(family='Helvetica', size=48, weight='bold')
 
-#Init##########################################################################
 
-#https://docs.opencv.org/3.4/d4/d13/tutorial_py_filtering.html
+#Image processing ##########################################################################
+
+#Creates a blurred version of the input image to be displayed on win
 def blurImage(app):
-    #Create destination array
-
-    # resizedOriginal = resizeWinCover(app, app.photoArray)
-
-    # alphaImage = cv.addWeighted(app.winCoverArray, 0.2, resizedOriginal, 0.6, 0, app.stage)
+    
+    #References:
+    # https://docs.opencv.org/3.4/d4/d13/tutorial_py_filtering.html
     rgbImage = cv.cvtColor(app.photoArray, cv.COLOR_BGR2RGBA)
     blurredImage = cv.GaussianBlur(rgbImage, (21, 21), 0)
 
-    # for row in blurredImage:
-    #     for pixel in row:
-    #         pixel.append(0.5)
-
-    #     print(row)
-
     return blurredImage
 
-# #Functionality tho
-# def resizeWinCover(app, toResize):
-#     #Size up??
-#     if (len(toResize) > app.height
-#         or len(toResize) > app.width):
-#         interpolation = cv.INTER_AREA
-
-#     #Size down
-#     else:
-#         interpolation = cv.INTER_CUBIC
-
-#     #Create destination array
-#     app.stage = (app.width, app.height)
-
-#     #Resize image into destination array
-#     img = cv.resize(toResize, app.stage, 
-#          interpolation)
-
-#     return  img
-
+#Resizes an image to fit puzzle gameboard area
+#References:
+# https://docs.opencv.org/3.4/da/d54/group__imgproc__
+# transform.html#ga47a974309e9102f5f08231edc7e7529d
+# https://www.pyimagesearch.com/2021/01/20/opencv-resize-image-cv2-resize/
+# https://www.tutorialspoint.com/using-opencv-with-tkinter
 def resizeImage(app):
 
-    #Size up???
+    #Size down interpolation
     if (len(app.rawPhoto) > app.maxHeight 
         or len(app.rawPhoto[0]) > app.maxWidth):
         interpolation = cv.INTER_AREA
 
-    #Size down
+    #Size up interpolation
     else:
         interpolation = cv.INTER_CUBIC
 
@@ -154,72 +117,66 @@ def resizeImage(app):
 
     return  img
 
-def cutCounters(app):
-    colorList = []
+#Get palette#########################################################################
 
-    for color in app.palette:
-        colorList.append(color[:4])
-
-    return colorList
-
+#Trims default 8-color palette (median cut can only do powers of 2) to
+# app.paletteSize
 def trimPalette(app):
     colorList = []
 
-    for color in app.counter:
-        colorList.append((color, app.counter[color]))
+    #Get frequency of used colors
+    for color in app.colorCounter:
+        colorList.append((color, app.colorCounter[color]))
 
+    #Sort used colors by frequency
     colorList = sorted(colorList, key=lambda element: element[1])
-    colorList = colorList[:len(colorList) - 3]
 
+    #If too many colors were used, cut out the least frequent ones
+    if (len(colorList) > app.paletteSize):
+        difference = len(colorList) - app.paletteSize 
+        colorList = colorList[:len(colorList) - difference]
+
+    #Cut frequency data out from colorList
     colorList = [color[0] for color in colorList]
 
     colorSet = set(colorList)
 
+    #Find cells in solutionGrid that used trimmed colors,
+    # and fill them with the closest remaining color 
     for i in range(len(app.solutionGrid)):
         for j in range(len(app.solutionGrid[i])):
+
             oldColor = app.solutionGrid[i][j]
+
+            #If trimmed color was used
             if (oldColor not in colorSet):
+                #References:
+                # #https://pillow.readthedocs.io/en/stable/reference/ImageColor.html
                 oldColor = ImageColor.getrgb(oldColor)
 
                 red = oldColor[0]
                 green = oldColor[1]
                 blue = oldColor[2]
 
-                closestColor = None
-                closestDistance = None
-
-                #Get rid of euclidean - try chi squared, 
-                #https://en.wikipedia.org/wiki/Color_difference
-                for color in colorList:
-                    color = ImageColor.getrgb(color)
-
-                    distance = math.sqrt( (color[0] - red)**2 + (color[1] - green)**2 
-                    + (color[2] - blue)**2)
-
-                    if (closestColor == None or distance < closestDistance):
-                        closestColor = color
-                        closestDistance = distance
-
+                #Replace with closest remaining color
+                closestColor = getClosestColor(red, green, blue, getRgbPalette(colorList))
                 app.solutionGrid[i][j] = rgbToHex(closestColor)
-
-
+    
     app.usedPalette = list(colorSet)
 
+#Gets a palette of rgb colors from a palette of hex colors
+def getRgbPalette(palette):
+    rgbPalette = []
 
-#Goal: replace w/ my own algorithm
-#https://github.com/fengsp/color-thief-py
-#https://muthu.co/reducing-the-number-of-colors-of-an-image-using-median-cut-algorithm/
-def getPalette(app, filename):
+    for color in palette:
+        rgbPalette.append(ImageColor.getrgb(color))
 
-    # flattened_img_array = []
-    # for rindex, rows in enumerate(app.photoArray):
-    #     for cindex, color in enumerate(rows):
-    #         flattened_img_array.append([color[0],color[1],color[2]]) 
+    return rgbPalette
 
-    # flattened_img_array = np.array(flattened_img_array)
-    # get = split_into_buckets(app, app.photoArray, flattened_img_array, 3)
-    # print(get)
-    # return get
+
+#Gets palette using regular median cut algorithm
+# (written by me!)
+def getPaletteMedianCut(app):
     
     bucket = []
     for i in range(len(app.photoArray)):
@@ -227,210 +184,160 @@ def getPalette(app, filename):
             pixel = app.photoArray[i][j]
             bucket.append([pixel[0], pixel[1], pixel[2]])
 
-    # num = len(app.photoArray[0])
+    palette = medianCut(np.array(bucket), 3)
 
-    yes = medianCut(np.array(bucket), 3)
+    return palette
 
-    # yes = getFarthest(yes, 5)
-
-    return yes
-
+#Gets palette using module modified median cut algorithm 
+# for comparison to regular median cut algorithm
+#References:
+# https://github.com/fengsp/color-thief-py
+def getPaletteModifiedMedianCut(app, filename):
     color_thief = ColorThief(filename)
     return color_thief.get_palette(color_count=app.paletteSize)
 
-# def getFarthest(palette, n):
-#     for color in palette:
-#         distance = math.sqrt( (color[0] - red)**2 + (color[1] - green)**2 
-#             + (color[2] - blue)**2)
 
-#         if (closestColor == None or distance < closestDistance):
-#             closestColor = color
-#             closestDistance = distance
+#Get random palette#########################################################################
 
-#     newColor = rgbToHex(closestColor)
-#     app.usedPalette.add(newColor)
-
-# def median_cut_quantize(app, img, img_arr):
-#     # when it reaches the end, color quantize
-#     r_average = np.mean(img_arr[:,0])
-#     g_average = np.mean(img_arr[:,1])
-#     b_average = np.mean(img_arr[:,2])
-    
-#     return [[b_average, g_average, r_average]]
-    
-# def split_into_buckets(app, img, img_arr, depth):
-    
-#     if len(img_arr) == 0:
-#         return 
-        
-#     if depth == 0:
-#         return median_cut_quantize(app, img, img_arr)
-    
-#     r_range = np.max(img_arr[:,0]) - np.min(img_arr[:,0])
-#     g_range = np.max(img_arr[:,1]) - np.min(img_arr[:,1])
-#     b_range = np.max(img_arr[:,2]) - np.min(img_arr[:,2])
-    
-#     space_with_highest_range = 0
-
-#     if g_range >= r_range and g_range >= b_range:
-#         space_with_highest_range = 1
-#     elif b_range >= r_range and b_range >= g_range:
-#         space_with_highest_range = 2
-#     elif r_range >= b_range and r_range >= g_range:
-#         space_with_highest_range = 0
-
-    # # sort the image pixels by color space with highest range 
-    # # and find the median and divide the array.
-    # img_arr = img_arr[img_arr[:,space_with_highest_range].argsort()]
-    # median_index = int((len(img_arr)+1)/2)
-
-    
-    # #split the array into two blocks
-    # return (split_into_buckets(app, img, img_arr[0:median_index], depth-1) + 
-    # split_into_buckets(app, img, img_arr[median_index:], depth-1))
-
-#http://colormind.io/api-access/
-#https://docs.python-requests.org/en/latest/
-#https://realpython.com/api-integration-in-python/
+#Gets a random color palette using colormind.io api
+#References:
+# http://colormind.io/api-access/
 def getRandomPalette(app):
     palette = []
 
+    #Send request for random palette
+    #References:
+    # https://docs.python-requests.org/en/latest/
+    # https://realpython.com/api-integration-in-python/
     url = 'http://colormind.io/api/'
     param = {"model":"default"}
     request = requests.post(url, json=param)
+
+    #Construct palette from response
     for color in (request.json())['result']:
         palette.append(rgbToHex(color))
 
+    #Adjust solution and answer grids to match new palette
     usedPalette = adjustGrid(app, palette)
 
+    #Set color palette and color bucket fields to match new palette
     app.palette = palette
     app.usedPalette = set(usedPalette)
     app.colorData = placeColors(app)
+
+    #Note: Ask if this function is too destructive
     
 
+#Adjusts the colors in solutionGrid and answerGrid to match the
+# new color palette
 def adjustGrid(app, newPalette):
     colorDict = {}
-    usedPaletteList = list(app.usedPalette)
+    #Will contain colors from returned palette that are
+    # actually used
     newUsedPalette = []
 
-    for i in range(len(usedPaletteList)):
-        colorDict[usedPaletteList[i]] = newPalette[i]
+    #Get old palette
+    oldUsedPaletteList = list(app.usedPalette)
+
+    #Map old palette colors to new palette colors
+    for i in range(len(oldUsedPaletteList)):
+        colorDict[oldUsedPaletteList[i]] = newPalette[i]
         newUsedPalette.append(newPalette[i])
 
+    #Edit solutionGrid and answerGrid cell colors to match
+    # new palette
     for row in range(len(app.solutionGrid)):
         for col in range(len(app.solutionGrid[row])):
+
+            #Adjust solution grid cell
             oldColor = app.solutionGrid[row][col]
             app.solutionGrid[row][col] = colorDict[oldColor]
 
+            #Adjust answer grid cell
             oldColor = app.answerGrid[row][col]
 
             if ((oldColor != None)):
                 app.answerGrid[row][col] = colorDict[oldColor]
 
+    #Return new palette
     return newUsedPalette
 
-#http://leptonica.org/papers/mediancut.pdf
+
+#Median Cut Algorithm#########################################################################
+
+#Gets the top 2^n colors from a photo
+#References:
+# https://link.springer.com/referenceworkentry/10.1007%2F978-0-387-78414-4_36
+# http://cis.csuohio.edu/~sschung/CIS660/Chapter3_SCMedianCutNotes.pdf
+# https://en.wikipedia.org/wiki/Median_cut
+# https://muthu.co/reducing-the-number-of-colors-of-an-image-using-median-cut-algorithm/
+# https://github.com/fengsp/color-thief-py/blob/master/colorthief.py
+# http://leptonica.org/papers/mediancut.pdf
 def medianCut(bucket, target):
 
+    #If a bucket is empty, just return it
     if (bucket == []):
         return
+    #If the target depth has been reached, return the average
+    # rgb value of the current bucket
     elif (target == 0):
-        return [getAverage(bucket)] 
+        return [getAverage(np.array(bucket))] 
     else:
-        sortedBucket = sortBucket(bucket)
+        #Sort bucket along greatest rgb channel axis
+        sortedBucket = sortBucket(np.array(bucket))
 
-        #medianIndex = (len(sortedBucket) + 1) // 2
-        medianIndex = int(( len(sortedBucket) + 1) / 2)
+        medianIndex = (len(sortedBucket) + 1) // 2
 
+        #Divide sorted bucket along median index and recurse
         return (medianCut(sortedBucket[:medianIndex], target - 1) + 
             medianCut(sortedBucket[medianIndex:], target - 1))
 
-#https://stackoverflow.com/questions/15884527/how-can-i-prevent-the-
-# typeerror-list-indices-must-be-integers-not-tuple-when-c
-#https://github.com/muthuspark/ml_research/blob/
-# master/median%20cut%20color%20quantization.ipynb
+
+#Gets the average pixel color from a bucket
 def getAverage(bucket):
-    red = np.mean(bucket[:, 0])
-    blue = np.mean(bucket[:, 1])
-    green = np.mean(bucket[:, 2])
+    #References:
+    # https://muthu.co/reducing-the-number-of-colors-
+    # of-an-image-using-median-cut-algorithm/
+    # https://stackoverflow.com/questions/15884527/how-can-i-prevent-the-
+    # typeerror-list-indices-must-be-integers-not-tuple-when-c
+    blue = np.mean(bucket[:, 0])
+    green = np.mean(bucket[:, 1])
+    red = np.mean(bucket[:, 2])
 
-    # red = 0
-    # green = 0
-    # blue = 0
-
-    # count = 0
-
-    # for pixel in bucket:
-    #     red += pixel[0]
-    #     green += pixel[1]
-    #     blue += pixel[2]
-
-    #     count += 1
-
-    # red //= count
-    # green //= count
-    # blue //= count
-
-    return [green, blue, red]
+    return [red, green, blue]
 
 
+#Sorts pixels in a bucket along the greatest channel axis
 def sortBucket(bucket):
 
-    red = [None, None]
-    green = [None, None]
-    blue = [None, None]
+    #Get rgb channel ranges
+    #References:
+    # https://muthu.co/reducing-the-number-of-colors-
+    # of-an-image-using-median-cut-algorithm/
+    redRange = np.max(bucket[:, 0]) - np.min(bucket[:, 0])
+    greenRange = np.max(bucket[:, 1]) - np.min(bucket[:, 1])
+    blueRange = np.max(bucket[:, 2]) - np.min(bucket[:, 2])
 
-    #Longer but more efficient than list comprehensions
-    for pixel in bucket:
-        if (red[0] == None):
-            red[0] = pixel[0]
-            red[1] = pixel[0]
-        else:
-            if (pixel[0] < red[0]):
-                red[0] = pixel[0]
-            elif (pixel[0] > red[1]):
-                red[1] = pixel[0]
-
-        if (green[0] == None):
-            green[0] = pixel[1]
-            green[1] = pixel[1]
-        else:
-            if (pixel[1] < green[0]):
-                green[0] = pixel[1]
-            elif (pixel[1] > green[1]):
-                green[1] = pixel[1]
-
-        if (blue[0] == None):
-            blue[0] = pixel[2]
-            blue[1] = pixel[2]
-        else:
-            if (pixel[2] < blue[0]):
-                blue[0] = pixel[2]
-            elif (pixel[2] > blue[1]):
-                blue[1] = pixel[2]
-
-    redRange = red[1] - red[0]
-    greenRange = green[1] - green[0]
-    blueRange = blue[1] - blue[0]
-
-    # redRange = np.max(bucket[:, 0]) - np.min(bucket[:, 0])
-    # greenRange = np.max(bucket[:, 1]) - np.min(bucket[:, 1])
-    # blueRange = np.max(bucket[:, 2]) - np.min(bucket[:, 2])
-
-    if (greenRange >= redRange and greenRange >= blueRange):
+    #Get channel with greatest range
+    if (redRange > greenRange and redRange > blueRange):
         greatestRange = 0
-    elif (blueRange >= redRange and blueRange >= greenRange):
+    elif (greenRange > redRange and greenRange > blueRange):
         greatestRange = 1
     else:
         greatestRange = 2
 
-    #https://www.w3schools.com/python/ref_func_sorted.asp
-    #https://docs.python.org/3/howto/sorting.html
-    # sortedList = sorted(bucket, key=lambda element: element[greatestRange])
-    sortedList = bucket[bucket[:, greatestRange].argsort()]
+    #Sorts pixels along greatest channel axis
+    #References:
+    # https://www.w3schools.com/python/ref_func_sorted.asp
+    # https://docs.python.org/3/howto/sorting.html
+    sortedList = sorted(bucket, key=lambda element: element[greatestRange])
 
     return sortedList
 
+
+#Construct grids#########################################################################
+
+#Constructs a 2D list gameboard grid according to parameters
 def getGrid(app):
     grid = []
 
@@ -443,6 +350,8 @@ def getGrid(app):
 
     return grid
 
+
+#Puts together the puzzle solution
 def getSolution(app):
     solution = []
 
@@ -455,256 +364,11 @@ def getSolution(app):
 
     return solution
 
-
-def getColor(app, row, col):
-    cellWidth = app.maxWidth / app.cols
-    cellHeight = app.maxHeight / app.rows
-
-    x1 = col * cellWidth
-    y1 = row * cellHeight
-
-    x2 = x1 + cellWidth
-    y2 = y1 + cellHeight
-
-    cx = int(x1 + (x2 - x1) // 2)
-    cy = int(y1 + (y2 - y1) // 2)
-
-    cell = cv.getRectSubPix(app.photoArray, 
-        (int(cellWidth), int(cellHeight)), (cx, cy))
-
-    blue = 0
-    green = 0
-    red = 0
-
-    count = 0
-
-    #numpy for pixel averages - efficient could be complex
-    for row in range(len(cell)):
-        for col in range(len(cell[0])):
-            pixel = cell[row][col]
-            blue += pixel[0]
-            green += pixel[1]
-            red += pixel[2]
-
-            count += 1
-
-    blue //= count
-    green //= count
-    red //= count
-
-    closestColor = None
-    closestDistance = None
-
-    #Get rid of euclidean - try chi squared, 
-    #https://en.wikipedia.org/wiki/Color_difference
-    for color in app.palette:
-        distance = math.sqrt( (color[0] - red)**2 + (color[1] - green)**2 
-            + (color[2] - blue)**2)
-
-        if (closestColor == None or distance < closestDistance):
-            closestColor = color
-            closestDistance = distance
-
-    newColor = rgbToHex(closestColor)
-
-    if (app.counter.get(newColor, None) == None):
-        app.counter[newColor] = 1
-    else:
-        app.counter[newColor] += 1
-
-    app.usedPalette.add(newColor)
-    return newColor
-
-
-def getHints(app):
-
-    hintRows = []
-    hintRowsSorted = []
-    hintCols = []
-    hintColsSorted = []
-
-    colHelper = []
-    
-    for col in range(app.cols):
-        hintCols.append([])
-        #Appends currentColColor, currentColCount, startRow
-        colHelper.append([None, 0, 0])
-#24, 25 switch to col
-    for row in range(app.rows):
-        currentRowColor = None
-        currentRowCount = 0
-        startCol = 0
-    
-        rowCollector = []
-
-        for col in range(app.cols):
-            cellColor = app.solutionGrid[row][col]
-
-            if (cellColor == currentRowColor):
-                currentRowCount += 1
-                if (col == app.cols - 1):
-                    rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
-
-            else:
-                if (currentRowColor != None):
-                    rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
-
-                currentRowColor = cellColor
-                currentRowCount = 1
-                startCol = col
-
-                if (col == app.cols - 1):
-                    rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
-
-            if (cellColor == colHelper[col][0]):
-                colHelper[col][1] += 1
-                if (row == app.rows - 1):
-                    hintCols[col].append([colHelper[col][0], colHelper[col][1], colHelper[col][2], 1])
-
-            else:
-                if (colHelper[col][0] != None):
-                    hintCols[col].append([colHelper[col][0], colHelper[col][1], colHelper[col][2], 1])
-
-                colHelper[col][0] = cellColor
-                colHelper[col][1] = 1
-                colHelper[col][2] = row
-
-        hintRowsSorted.append(copy.copy(rowCollector))
-
-        random.shuffle(rowCollector)
-        hintRows.append(rowCollector)
-
-    hintColsSorted = copy.deepcopy(hintCols)
-    for col in hintCols:
-        random.shuffle(col)
-
-    return hintRows, hintCols, hintRowsSorted, hintColsSorted
-
-# def getOddHint(row):
-#     hintPriorityList = sorted(row, key=lambda element: element[1])
-#     return hintPriorityList[0]
-
-
-# def trimSolution(app):
-
-#     problems = True
-
-#     while (problems):
-
-#         for i in range(app.rows)
-
-
-# def trimHints(app):
-
-#     problemRows, problemCols = getProblems(app)
-#     problems = True
-
-#     while (problems):
-
-#         fixProblem(app, problemRows[0][0], problemRows[0][1][2], 0)
-    
-#         fixProblem(app, problemCols[0][0], problemCols[0][1][2], 1)
-
-#         app.hintRows, app.hintCols, app.hRSorted, app.hCSorted = getHints(app)
-
-#         problemRows, problemCols = getProblems(app)
-
-#         if (problemRows == [] and problemCols == []):
-#             problems = False
-            
-
-            
-
-
-# def fixProblem(app, row, col, problemDimension):
-
-#     for row in range(app.rows):
-#             colContents = []
-#             colContents.append(app.solutionGrid[row][col])
-
-#     neighbors = getNeighbors(app, row, col, problemDimension)
-
-#     lastNeighbor = None
-#     options = []
-
-#     #Ideally want new color to be in both col and row
-#     for neighbor in neighbors:
-#         if (neighbor in app.solutionGrid[row] and neighbor in colContents):
-#             options.append(neighbor)
-
-#         if (neighbor != app.solutionGrid[row][col]):
-#             lastNeighbor = neighbor
-
-#     #Worst case 
-#     if (options == []):
-#         options.append(lastNeighbor)
-
-#     print(app.solutionGrid[row][col], options[0])
-#     app.solutionGrid[row][col] = options[0]
-#     print(app.solutionGrid[row][col] )
-
-
-# def getProblems(app):
-#     problemRows = []
-#     problemCols = []
-
-#     for i in range(len(app.hintRows)):
-#         if (len(app.hintRows[i]) > 5):
-#             oddRowCopy = copy.copy(app.hintRows[i])
-#             for j in range(len(app.hintRows[i]) - 5):
-#                 oddHint = getOddHint(oddRowCopy)
-#                 problemRows.append((i, oddHint))
-#                 oddRowCopy.remove(oddHint)
-
-    
-#     for i in range(len(app.hintCols)):
-#         if (len(app.hintCols[i]) > 4):
-#             oddColCopy = copy.copy(app.hintCols[i])
-#             for j in range(len(app.hintCols[i]) - 4):
-#                 oddHint = getOddHint(oddColCopy)
-#                 problemCols.append((i, oddHint))
-#                 oddColCopy.remove(oddHint)
-
-#     return problemRows, problemCols
-
-# def getNeighbors(app, row, col, problemDimension): 
-#     rowNeighbors = set([])
-#     colNeighbors = set([])
-
-#     if (row - 1 > 0):
-#         rowNeighbors.add(app.solutionGrid[row - 1][col])
-
-#     if (row + 1 < app.rows):
-#         rowNeighbors.add(app.solutionGrid[row + 1][col])
-
-#     if (col - 1 > 0):
-#         colNeighbors.add(app.solutionGrid[row][col - 1])
-
-#     if (col + 1 > 0):
-#         colNeighbors.add(app.solutionGrid[row][col + 1])
-
-#     #https://www.w3schools.com/python/python_ref_set.asp
-#     idealNeighbors = rowNeighbors.intersection(colNeighbors)
-
-#     #Ideally return double neighbors
-#     if (len(idealNeighbors) != 0):
-#         return idealNeighbors
-#     #Else return row neighbors
-#     else:
-#         if (problemDimension == 0):
-#             return rowNeighbors
-#         else:
-#             return colNeighbors
-
-#     # for problemHint in problemRows:
-#     #     #My thought is change to a neighboring color that is in both row and col
-
-
-
-#Model#########################################################################
-
-
-#https://docs.python.org/3/library/functions.html#hex
+#Color#########################################################################
+
+#Converts rgb color values to hexadecimal color values
+#Reference:
+# https://docs.python.org/3/library/functions.html#hex
 def rgbToHex(rgb):
 
     red = '%X' % int(rgb[0])
@@ -724,128 +388,185 @@ def rgbToHex(rgb):
 
     return hex
 
-def placeColors(app):
-    colorData = []
 
-    if (len(app.usedPalette) > 1):
-        circleX = app.maxWidth / ( len(app.usedPalette) - 1)
-        colorCount = 0    
+#Gets a pixel region corresponding to a grid cell
+def getCell(app, row, col):
+
+    #Calculate cell parameters
+    cellWidth = app.maxWidth / app.cols
+    cellHeight = app.maxHeight / app.rows
+
+    x1 = col * cellWidth
+    y1 = row * cellHeight
+
+    x2 = x1 + cellWidth
+    y2 = y1 + cellHeight
+
+    cx = int(x1 + (x2 - x1) // 2)
+    cy = int(y1 + (y2 - y1) // 2)
+
+    #Get pixel region
+    cell = cv.getRectSubPix(app.photoArray, 
+        (int(cellWidth), int(cellHeight)), (cx, cy))
+
+    return cell
+
+#Get closest palette color to a provided color
+def getClosestColor(red, green, blue, palette):
+
+    closestColor = None
+    closestDistance = None
+
+    #Get rid of euclidean - try chi squared, 
+    #Reference:
+    # https://en.wikipedia.org/wiki/Color_difference
+    for color in palette:
+        distance = math.sqrt( (color[0] - red)**2 + (color[1] - green)**2 
+            + (color[2] - blue)**2)
+
+        if (closestColor == None or distance < closestDistance):
+            closestColor = color
+            closestDistance = distance
+
+    return closestColor
+
+
+#Get average color of pixel region for a grid cell
+def getColor(app, row, col):
+
+    #Get pixel region
+    cell = getCell(app, row, col)
+
+    #Get region channel averages
+    #Reference:
+    # https://muthu.co/reducing-the-number-of-
+    # colors-of-an-image-using-median-cut-algorithm/
+    red = np.mean(cell[:, 0])
+    blue = np.mean(cell[:, 1])
+    green = np.mean(cell[:, 2])
+
+    #Get closest palette color to average
+    closestColor = getClosestColor(red, green, blue, app.palette)
+    newColor = rgbToHex(closestColor)
+
+    #Update number of occurances of newColor
+    if (app.colorCounter.get(newColor, None) == None):
+        app.colorCounter[newColor] = 1
     else:
-        circleX = app.maxWidth / 2
-        colorCount = 1 
+        app.colorCounter[newColor] += 1
+
+    #Mark color as used
+    app.usedPalette.add(newColor)
+    return newColor
 
 
-    y1 = app.height - app.radius * 2
-    for color in app.usedPalette:
-        x1 = app.widthMargin + circleX * colorCount - app.radius / 2
-        colorData.append((x1, y1, x1 + app.radius, y1 + app.radius, color))
+#Handle click########################################################################
 
-        colorCount += 1
+#Handle mouse drag
+def mouseDragged(app, event):
+    cx = event.x
+    cy = event.y
 
-    return colorData
+    #Don't paint after win
+    if (not app.isWin):
+        paint(app, cx, cy, True)
 
-def verify(app):
-    for i in range(app.rows):
-        for j in range(app.cols):
 
-            if ( (app.answerGrid[i][j] != None) and (app.answerGrid[i][j] != app.solutionGrid[i][j])):
-                app.errors.add((i, j))
+#Handle mouse click
+def mousePressed(app, event):
+    cx = event.x
+    cy = event.y
 
-            elif( (i, j) in app.errors):
-                app.errors.remove((i, j))
+    #Don't paint after win
+    if (not app.isWin):
 
-    if (len(app.errors) == 0):
-        app.isError = False
-    else:
-        app.isError = True
+        #If the user clicked the shuffle palette button, shuffle the palette
+        if ((app.widthMargin / 4 < cx < app.widthMargin - app.widthMargin / 4)
+        and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
 
+            getRandomPalette(app)
+
+        #Otherwise try paint
+        else:
+            paint(app, cx, cy, False)
+
+
+#Handles painting-related clicks 
+# (change brush color, paint, erase)
 def paint(app, cx, cy, drag):
+
+    #Checks if the user clicked on a paint bucket
     if (cy > app.height - app.heightMargin):
 
+        #If so, change brush color to match paint bucket
         for color in app.colorData:
             if ((color[0] <= cx <= color[2]) and 
                 (color[1] <= cy <= color[3])):
                 app.brushColor = color[4]
 
-
+    #Checks if the user clicked on the gameboard grid
     elif ((app.heightMargin < cy < app.height - app.heightMargin) and
         (app.widthMargin < cx < app.width - app.widthMargin)):
 
+        #Calculate the cell that was clicked on
         cellWidth = app.maxWidth / app.cols
         cellHeight = app.maxHeight / app.rows
 
         row = int( (cy - app.heightMargin) // cellHeight )
         col = int( (cx - app.widthMargin) // cellWidth ) 
 
+        #Paint a cell a new color
         if ( (app.brushColor != None) and (app.answerGrid[row][col] != app.brushColor) ):
             app.answerGrid[row][col] = app.brushColor
+
+        #Erase a cell's color (by clicking a cell painted the same color as the brush color)
         elif ((not drag) and (app.brushColor != None) and 
             (app.answerGrid[row][col] == app.brushColor) ):
             app.answerGrid[row][col] = None
 
+        #Check for incorrectly painted cells
         verify(app)
         
+        #Update hints to reflect solved and unsolved hints
         syncHints(app, row, col)
 
+    #Check for win state
     if (app.answerGrid == app.solutionGrid):
         app.isWin = True
 
-def syncHints(app, row, col):
-    for row in range(app.rows):
-        for hint in app.hintRows[row]:
-            if ((app.answerGrid[row])[hint[2]:hint[2] + hint[1]] ==
-                (app.solutionGrid[row])[hint[2]:hint[2] + hint[1]]):
-                hint[3] = 0
-            else: 
-                hint[3] = 1
+#Checks for incorrectly painted cells
+def verify(app):
 
-    for col in range(app.cols):
-        for hint in app.hintCols[col]:
-            answerCol = []
-            solutionCol = []
-            for row in range(app.rows):
-                answerCol.append(app.answerGrid[row][col])
-                solutionCol.append(app.solutionGrid[row][col])
+    for i in range(app.rows):
+        for j in range(app.cols):
 
-            if (answerCol[hint[2]:hint[2] + hint[1]] ==
-                solutionCol[hint[2]:hint[2] + hint[1]]):
-                hint[3] = 0
-            else:
-                hint[3] = 1
+            #If a cell is incorrectly painted, add its 
+            # location to the set of errors
+            if ( (app.answerGrid[i][j] != None) 
+            and (app.answerGrid[i][j] != app.solutionGrid[i][j])):
+                app.errors.add((i, j))
 
-#Events########################################################################
-
-def mouseDragged(app, event):
-    cx = event.x
-    cy = event.y
-
-    if (not app.isWin):
-        paint(app, cx, cy, True)
-
-def mousePressed(app, event):
-    cx = event.x
-    cy = event.y
-
-    if (not app.isWin):
-        if ((app.widthMargin / 4 < cx < app.widthMargin - app.widthMargin / 4)
-        and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
-            getRandomPalette(app)
-        else:
-            paint(app, cx, cy, False)
+            #If a cell was incorrectly painted but has been
+            # fixed, remove its location from the set of errors
+            elif( (i, j) in app.errors):
+                app.errors.remove((i, j))
 
 
-#Draw##########################################################################
+#Draw grid##########################################################################
 
-
+#Draws the gameboard grid
 def drawGrid(app, canvas, grid):
     for row in range(app.rows):
         for col in range(app.cols):
             drawCell(app, canvas, grid, row, col)
 
 
+#Draw a single cell on the gameboard grid
 def drawCell(app, canvas, grid, row, col):
+    #Gets cell fill from model
     color = grid[row][col]
 
+    #Calculates cell dimensions
     cellWidth = app.maxWidth / app.cols
     cellHeight = app.maxHeight / app.rows
 
@@ -854,21 +575,141 @@ def drawCell(app, canvas, grid, row, col):
     x2 = x1 + cellWidth
     y2 = y1 + cellHeight
 
+    #Draw filled cell
     if (color != None):
         canvas.create_rectangle(x1, y1, x2, y2, width = 2, fill = color)
 
+        #Incorrect fill, highlight error cell
         if ((row, col) in app.errors):
             canvas.create_rectangle(x1 + 2, y1 + 2, x2 - 2, y2 - 2, width = 2, outline = "red")
 
+    #Draw unfilled cell
     else:
         canvas.create_rectangle(x1, y1, x2, y2, width = 2)
 
 
+#Hints##############################################################################
+
+#Calculates puzzle hints from puzzle solution
+def getHints(app):
+
+    #Set up arrays
+    hintRows, hintRowsSorted, hintCols, colHelper = [], [], [], []
+
+    #Initializes col hint data for every col 
+    # (allows column hints and row hints to be constructed simultaneously)
+    for col in range(app.cols):
+        hintCols.append([])
+
+        #[currentColColor, currentColCount, startRow]
+        colHelper.append([None, 0, 0])
+
+
+    for row in range(app.rows):
+        #Initializes row hint data
+        currentRowColor, currentRowCount, startCol = None, 0, 0
+    
+        rowCollector = []
+
+        for col in range(app.cols):
+            cellColor = app.solutionGrid[row][col]
+
+            #Tracks ongoing row color run
+            if (cellColor == currentRowColor):
+                currentRowCount += 1
+
+            #A color run was just completed (or a row just began)
+            else:
+                #Append finished color run
+                if (currentRowColor != None):
+                    rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
+
+                #Reset row hint data
+                currentRowColor, currentRowCount, startCol = cellColor, 1, col
+
+            #If this was the last cell in the row, add the final hint to rowCollector
+            if (col == app.cols - 1):
+                rowCollector.append([currentRowColor, currentRowCount, startCol, 1])
+
+
+            #Tracks ongoing col color run
+            if (cellColor == colHelper[col][0]):
+                colHelper[col][1] += 1
+
+            #A color run was just completed (or a column just began)
+            else:
+                #Append finished color run
+                if (colHelper[col][0] != None):
+                    hintCols[col].append([colHelper[col][0], colHelper[col][1], colHelper[col][2], 1])
+
+                #Reset column hint data
+                colHelper[col][0], colHelper[col][1], colHelper[col][2] = cellColor, 1, row
+
+            #If this was the last cell in the column, add the final hint to colHelper
+            if (row == app.rows - 1):
+                    hintCols[col].append([colHelper[col][0], colHelper[col][1], colHelper[col][2], 1])
+
+        #Append original ordered rowCollector to hintRowsSorted to be used in syncHints
+        hintRowsSorted.append(copy.copy(rowCollector))
+
+        #Append randomized rowCollector to be used in drawHints
+        random.shuffle(rowCollector)
+        hintRows.append(rowCollector)
+
+
+    #Save original ordered hintCols to hintColsSorted to be used in syncHints
+    hintColsSorted = copy.deepcopy(hintCols)
+
+    #Shuffle column hints in hintCols to be used in drawHints
+    for col in hintCols:
+        random.shuffle(col)
+
+    return hintRows, hintCols, hintRowsSorted, hintColsSorted
+
+    #33 - cut 3 lines
+
+#Shows unsolved hints and disappears solved hints
+def syncHints(app, row, col):
+
+    #Sync row hints
+    for row in range(app.rows):
+        for hint in app.hintRows[row]:
+            #If hint is solved, hide hint
+            if ((app.answerGrid[row])[hint[2]:hint[2] + hint[1]] ==
+                (app.solutionGrid[row])[hint[2]:hint[2] + hint[1]]):
+                hint[3] = 0
+            
+            #Else show hint
+            else: 
+                hint[3] = 1
+
+    #Sync col hints
+    for col in range(app.cols):
+        for hint in app.hintCols[col]:
+            answerCol = []
+            solutionCol = []
+
+            for row in range(app.rows):
+                #Build columns to check hints against
+                answerCol.append(app.answerGrid[row][col])
+                solutionCol.append(app.solutionGrid[row][col])
+
+            #If hint is solved hide hint
+            if (answerCol[hint[2]:hint[2] + hint[1]] ==
+                solutionCol[hint[2]:hint[2] + hint[1]]):
+                hint[3] = 0
+
+            #Else show hint
+            else:
+                hint[3] = 1
+
+#Draws hints
 def drawHints(app, canvas):
 
     showRowHints = []
     showColHints = []
 
+    #Collects unsolved row hints that need to be drawn
     for row in app.hintRows:
         rowCollector = []
         for hint in row:
@@ -877,6 +718,7 @@ def drawHints(app, canvas):
 
         showRowHints.append(rowCollector)
 
+    #Collects unsolved column hints that need to be drawn
     for col in app.hintCols:
         colCollector = []
         for hint in col:
@@ -886,15 +728,19 @@ def drawHints(app, canvas):
         showColHints.append(colCollector)
 
 
+    #Calculates parameters for drawing hints
     rowHintWidth = app.widthMargin / 5
     rowHintHeight = app.maxHeight / app.rows
 
     colHintHeight = app.heightMargin / 4
     colHintWidth = app.maxWidth / app.cols
 
+    #Draws row hints
     for i in range(len(showRowHints)):
         hintCount = 0
+
         y1 = app.heightMargin + rowHintHeight * (i + 1) - rowHintHeight // 2
+
         for hint in showRowHints[i]:
             x1 = app.widthMargin - rowHintWidth * hintCount - rowHintWidth // 2
 
@@ -902,9 +748,12 @@ def drawHints(app, canvas):
 
             hintCount += 1
     
+    #Draws column hints
     for i in range(len(showColHints)):
         hintCount = 0
+
         x1 = app.widthMargin + colHintWidth * (i + 1) - colHintWidth // 2
+
         for hint in showColHints[i]:
             y1 = app.heightMargin - colHintHeight * hintCount - colHintHeight // 2
 
@@ -912,25 +761,57 @@ def drawHints(app, canvas):
 
             hintCount += 1
 
+
+#Color Buckets##############################################################################
+
+#Calculate color bucket locations
+def placeColors(app):
+    colorData = []
+
+    #Calculations for multicolor palettes
+    if (len(app.usedPalette) > 1):
+        circleX = app.maxWidth / ( len(app.usedPalette) - 1)
+        colorCount = 0    
+    
+    #Calculations for one-color palettes
+    else:
+        circleX = app.maxWidth / 2
+        colorCount = 1 
+
+    #Calculate bucket locations
+    y1 = app.height - app.radius * 2
+    for color in app.usedPalette:
+        x1 = app.widthMargin + circleX * colorCount - app.radius / 2
+        colorData.append((x1, y1, x1 + app.radius, y1 + app.radius, color))
+
+        colorCount += 1
+
+    return colorData
+
+#Draws color buckets
 def drawColors(app, canvas):
 
     for color in app.colorData:
         canvas.create_oval(color[0], color[1], color[2], color[3], fill=color[4])
 
 
+#Draw##############################################################################
+
+
+#Draws game on the canvas
 def redrawAll(app, canvas):
     
-    drawGrid(app, canvas, app.solutionGrid)
+    #Draw gameboard, hints, color buckets
+    drawGrid(app, canvas, app.answerGrid)
     drawHints(app, canvas)
     drawColors(app, canvas)
 
+    #Draw shuffle button
     canvas.create_rectangle(app.widthMargin / 4, app.heightMargin / 4, app.widthMargin - app.widthMargin / 4,
         app.heightMargin - app.heightMargin / 4, fill="orange", outline="orange")
     canvas.create_text(app.widthMargin / 2, app.heightMargin / 2, text="Shuffle", fill="white")
 
-    #canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.photo))
-    # plt.imshow(sample_img)
-
+    #Draw win state
     if (app.isWin):
         canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.blurredImage))
 
@@ -943,8 +824,8 @@ def redrawAll(app, canvas):
 
         canvas.create_text(app.width // 2, app.height // 2, text="YOU WIN!", fill="black", font=app.titleFont)
 
-def playPuzzle(file):
-    runApp(width=800, height=850, filename=file)
+def playPuzzle(file, alg):
+    runApp(width=800, height=850, filename=file, algorithm=alg)
     
 
 
