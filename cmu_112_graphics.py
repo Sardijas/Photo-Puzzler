@@ -276,7 +276,10 @@ class App(object):
         app._logDrawingCalls = logDrawingCalls
         app._running = app._paused = False
         app._mousePressedOutsideWindow = False
+        
+        #My edits here!!!!!!!!!!
         app.filename = filename
+
         if autorun: app.run()
 
     def __repr__(app):
