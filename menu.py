@@ -30,6 +30,9 @@ def appStarted(app):
     app.photo = None
     photoInit(app)
 
+    #Algorithm chooser init
+    app.algorithm = False
+
 
 #Image Processing##############################################################################
 
@@ -111,7 +114,7 @@ def mousePressed(app, event):
             < app.heightMargin + app.maxHeight)):
 
             #Play puzzle
-            main.playPuzzle(app.selectedFile, False)
+            main.playPuzzle(app.selectedFile, app.algorithm)
 
     #Otherwise check for clicks in smaller photo stage
     else:
@@ -121,6 +124,15 @@ def mousePressed(app, event):
             #Select photo
             selectFile(app)
 
+    #Check for algorithm toggle clicks
+    if ((app.widthMargin * 2 < cx < app.maxWidth - app.widthMargin) and
+        (app.height - app.heightMargin * 1.5 < cy < app.height - app.heightMargin)):
+
+        if (app.algorithm):
+            app.algorithm = False
+        else:
+            app.algorithm = True
+
 
 #Draw##############################################################################
 
@@ -128,7 +140,7 @@ def mousePressed(app, event):
 def redrawAll(app, canvas):
 
     #Main menu text
-    canvas.create_text(app.width / 2, app.heightMargin, text="Main Menu", fill="red",
+    canvas.create_text(app.width / 2, app.heightMargin, text="Main Menu", fill="black",
         font=app.titleFont)
 
     #Layout if photo has been selected
@@ -136,14 +148,14 @@ def redrawAll(app, canvas):
 
         #Photo stage
         canvas.create_rectangle(app.widthMargin, app.heightMargin * 2, app.maxWidth, 
-            app.maxHeight, fill="blue")
+            app.maxHeight, fill="orange", outline="orange")
         
         canvas.create_image(app.width // 2, app.height // 2 - app.heightMargin, 
             image=ImageTk.PhotoImage(app.photo))
 
         #Play button
         canvas.create_rectangle(app.widthMargin, app.heightMargin * 0.25 + app.maxHeight, 
-        app.maxWidth, app.heightMargin + app.maxHeight, fill="green")
+        app.maxWidth, app.heightMargin + app.maxHeight, fill="purple", outline="purple")
 
         canvas.create_text(app.width / 2, (app.maxHeight  + app.heightMargin * 0.25)  + 
         ((app.heightMargin + app.maxHeight) - (app.heightMargin * 0.25 + app.maxHeight)) / 2, 
@@ -152,7 +164,7 @@ def redrawAll(app, canvas):
     else:
         #Photo stage
         canvas.create_rectangle(app.widthMargin, app.heightMargin * 2, app.maxWidth, 
-            app.maxHeight - app.heightMargin, fill="blue")
+            app.maxHeight - app.heightMargin, fill="orange", outline="orange")
         
         canvas.create_text(app.width / 2, 
         app.heightMargin + (app.maxHeight - app.heightMargin) / 2,
@@ -161,13 +173,26 @@ def redrawAll(app, canvas):
         #Play button
         canvas.create_rectangle(app.widthMargin, 
         app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, 
-        app.maxWidth, app.maxHeight, fill="gray")
+        app.maxWidth, app.maxHeight, fill="gray", outline="gray")
 
         canvas.create_text(app.width / 2, 
         (app.maxHeight - app.heightMargin * 1.5 + app.heightMargin * 0.25)  + 
         ((app.maxHeight) - 
         (app.heightMargin * 0.25 + app.maxHeight - app.heightMargin * 2)) / 2, 
         text="Play", fill="black", font=app.font)
+
+    
+    #Algorithm toggle
+    canvas.create_rectangle(app.widthMargin * 2, 
+        app.height - app.heightMargin * 1.5, 
+        app.maxWidth - app.widthMargin, app.height - app.heightMargin, fill="purple", outline="purple")
+
+    if (not app.algorithm):
+        canvas.create_text(app.width / 2, app.height - (app.heightMargin + app.heightMargin * 1.5) / 2, 
+        text="Median Cut Algorithm", fill="white")
+    else:
+        canvas.create_text(app.width / 2, app.height - (app.heightMargin + app.heightMargin * 1.5) / 2, 
+        text="Modified Median Cut Algorithm", fill="white")
 
 
 

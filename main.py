@@ -1,3 +1,4 @@
+from collections import Counter
 from PIL import Image
 from PIL import ImageColor
 import math, copy, random, time, tkinter
@@ -77,6 +78,9 @@ def appStarted(app):
     app.blurredImageArray = blurImage(app)
     app.blurredImage = Image.fromarray(app.blurredImageArray)
     app.titleFont = tkinter.font.Font(family='Helvetica', size=48, weight='bold')
+
+    #Solve init
+    app.isSolve = False
 
 
 #Image processing ##########################################################################
@@ -224,6 +228,9 @@ def getRandomPalette(app):
     app.palette = palette
     app.usedPalette = set(usedPalette)
     app.colorData = placeColors(app)
+    #Reset hints to match new palette
+    app.hintRows, app.hintCols, app.hRSorted, app.hCSorted = getHints(app)
+    syncHints(app, 0, 0)
 
     #Note: Ask if this function is too destructive
     
@@ -477,18 +484,30 @@ def mousePressed(app, event):
     cx = event.x
     cy = event.y
 
-    #Don't paint after win
-    if (not app.isWin):
+    
+    #If the user clicked the shuffle palette button, shuffle the palette
+    if ((app.widthMargin / 4 < cx < app.widthMargin - app.widthMargin / 4)
+    and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
 
-        #If the user clicked the shuffle palette button, shuffle the palette
-        if ((app.widthMargin / 4 < cx < app.widthMargin - app.widthMargin / 4)
-        and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
+        getRandomPalette(app)
 
-            getRandomPalette(app)
+    #If the user clicked the solve button, solves the puzzle
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
 
-        #Otherwise try paint
-        else:
-            paint(app, cx, cy, False)
+        solve(app)
+
+    #If the user clicked the reset button, resets the puzzle
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 + app.heightMargin < cy < 2 * app.heightMargin - app.heightMargin / 4)):
+
+        app.isWin, app.isSolve = False, False
+        app.answerGrid = getGrid(app)
+        syncHints(app, 0, 0)
+
+    #Otherwise try paint. Don't paint after win
+    elif (not app.isWin):
+        paint(app, cx, cy, False)
 
 
 #Handles painting-related clicks 
@@ -794,6 +813,176 @@ def drawColors(app, canvas):
     for color in app.colorData:
         canvas.create_oval(color[0], color[1], color[2], color[3], fill=color[4])
 
+#Solver#########################################################################
+
+def deduce(app):
+    canDeduce = True
+
+    while (canDeduce):
+        canDeduce = False
+        unsolvedRows = []
+        unsolvedCols = []
+
+        for row in app.hintRows:
+            currentRow = []
+            for hint in row:
+                if (hint[3] == 1):
+                    currentRow.append(hint)
+            unsolvedRows.append(currentRow)
+
+        for col in app.hintCols:
+            currentCol = []
+            for hint in col:
+                if (hint[3] == 1):
+                    currentCol.append(hint)
+            unsolvedCols.append(currentCol)
+
+        #Only-one-color-left deductions
+        for hints in unsolvedRows:
+            if (len(hints) == 1):
+                print("Hi1", hint)
+                canDeduce = True
+                color = hints[0][0]
+                count = hints[0][1]
+                start = hints[0][2]
+
+                for i in range(count):
+                    app.answerGrid[unsolvedRows.index(hints)][start + i] = color
+
+                
+        for hints in unsolvedCols:
+            if (len(hints) == 1):
+                print("Hi2")
+                canDeduce = True
+                color = hints[0][0]
+                count = hints[0][1]
+                start = hints[0][2]
+
+                for i in range(count):
+                    app.answerGrid[start + i][unsolvedCols.index(hints)] = color
+
+        #p[]\print(app.answerGrid[start + i][unsolvedCols.index(hints)]); input()
+
+        # #Size deductions
+        # for hints in unsolvedRows:
+        #     for hint in hints:
+        #         color = hint[0]
+        #         count = hint[1]
+        #         if (count > app.cols // 2):
+        #             #print((app.cols - count) * 2)
+        #             for i in range(app.cols - (app.cols - count) * 2):
+        #                 #print((app.cols - count) + i)
+        #                 if (app.answerGrid[unsolvedRows.index(hints)][(app.cols - count) + i] == None):
+        #                     print("Hi3")
+        #                     canDeduce = True
+
+        #                 app.answerGrid[unsolvedRows.index(hints)][(app.cols - count) + i] = color
+        #                 #app.answerGrid[hints.index(hint)][(app.cols - count) + i] = "orange"
+        #     #print(hints)
+        #     #print(app.answerGrid[unsolvedRows.index(hints)][(app.cols - count) + i]); input()
+
+        for hints in unsolvedCols:
+            for hint in hints:
+                color = hint[0]
+                count = hint[1]
+                if (count > app.rows // 2):
+                    for row in app.answerGrid[-count:count]:
+                        if (row[hints.index(hint)] == None):
+                            print("Hi4")
+                            canDeduce = True
+                        row[hints.index(hint)] = color
+
+        syncHints(app, 0, 0)
+    print("I'm on the other side")
+
+                # i = 
+                # i = (app.hintCols).index(hint)
+                # app.hintCols[i][3] = 0
+
+        # print(len(unsolvedCols))
+
+        # print("yo"); input()
+        #         print("Ok good")
+
+        # print("moving on")
+
+        #Should handle adjacency deductions
+        # for hints in unsolvedRows:
+        #     colorList = [hint[0] for hint in hints]
+        #     colorSet = set(colorList)
+
+        #     if (len(colorSet) == 2):
+        #         colorCounts = {}
+        #         greater = None
+        #         smaller = None
+
+        #         for color in colorSet:
+        #             count = colorList.count(color)
+        #             if (greater == None):
+        #                 greater = (color, count)
+        #             elif (greater[1] < count):
+        #                 smaller = copy.copy(greater)
+        #                 greater = (color, count)
+        #             elif (greater[1] > count):
+        #                 smaller = (color, count)
+
+        #         if (smaller != None):
+
+
+
+
+
+
+
+        #Should make space remaining deductions
+
+
+        #Should make row-column only possible placement deductions
+
+
+def solve(app):
+
+    while (not app.isWin):
+        deduce(app)
+        print("Hi")
+
+        #Brute force next square
+        coordinates = getNextSquare(app)
+
+        if (coordinates != None):
+            print(coordinates)
+            print(app.answerGrid[coordinates[0]][coordinates[1]])
+            print(app.solutionGrid[coordinates[0]][coordinates[1]])
+            for color in app.usedPalette:
+
+                if (app.answerGrid[coordinates[0]][coordinates[1]] == None):
+                    app.answerGrid[coordinates[0]][coordinates[1]] = color
+
+                    verify(app)
+
+                    if ((coordinates[0], coordinates[1]) not in app.errors):
+                        continue
+                    
+                    app.answerGrid[coordinates[0]][coordinates[1]] = None
+
+        print("HELLOOOO")
+        syncHints(app, 0, 0)
+
+        if (app.answerGrid == app.solutionGrid):
+            app.isWin = True
+            app.isSolve = True
+
+    print("Yesssss!")
+
+        
+def getNextSquare(app):
+    for i in range(app.rows):
+            for j in range(app.cols):
+                if (app.answerGrid[i][j] == None):
+                    # print(i, j)
+                    return (i, j)
+
+
 
 #Draw##############################################################################
 
@@ -811,8 +1000,22 @@ def redrawAll(app, canvas):
         app.heightMargin - app.heightMargin / 4, fill="orange", outline="orange")
     canvas.create_text(app.widthMargin / 2, app.heightMargin / 2, text="Shuffle", fill="white")
 
+    #Draw solve button
+    canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4, app.width - app.widthMargin / 4,
+        app.heightMargin - app.heightMargin / 4, fill="purple", outline="purple")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2, text="Solve", fill="white")
+
+    #Draw reset button
+    canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4 + app.heightMargin, app.width - app.widthMargin / 4,
+        2 * app.heightMargin - app.heightMargin / 4, fill="red", outline="red")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2 + app.heightMargin, 
+        text="Reset", fill="white")
+
+
     #Draw win state
-    if (app.isWin):
+    if (app.isWin and not app.isSolve):
         canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.blurredImage))
 
         drawGrid(app, canvas, app.emptyGrid)
