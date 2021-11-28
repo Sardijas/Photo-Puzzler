@@ -20,6 +20,7 @@ def appStarted(app):
     #References:
     # https://docs.python.org/3/library/tkinter.font.html
     app.font = tkinter.font.Font(family='Helvetica', size=36, weight='bold')
+    app.errorFont = tkinter.font.Font(family='Helvetica', size=20, weight='bold')
     app.titleFont = tkinter.font.Font(family='Helvetica', size=48, weight='bold')
 
     #Photo init
@@ -32,6 +33,9 @@ def appStarted(app):
 
     #Algorithm chooser init
     app.algorithm = False
+
+    #Error handler
+    app.errorText = ""
 
 
 #Image Processing##############################################################################
@@ -89,8 +93,10 @@ def photoInit(app):
             app.photoArray = cv.cvtColor(app.photoArray, cv.COLOR_BGR2RGBA)
             app.photo = Image.fromarray(app.photoArray)
             app.photoSelected = True
+            app.errorText = ""
         except:
-            print("An error occurred")
+            app.errorText = "Incorrect file type"
+            print(app.errorText)
 
         #Add handle specific exceptions
 
@@ -101,7 +107,7 @@ def photoInit(app):
 def mousePressed(app, event):
     cx, cy = event.x, event.y
 
-    #If a photo has been selected, check for clicks in larger photo stage and play button
+    #If a photo has been selected, check for clicks in larger photo stage and play buttons
     if (app.photoSelected):
         if ((app.widthMargin < cx < app.width - app.widthMargin) and
             (app.heightMargin * 2 < cy < app.maxHeight)):
@@ -109,12 +115,44 @@ def mousePressed(app, event):
             #Select photo
             selectFile(app)
 
-        elif ((app.widthMargin < cx < app.width - app.widthMargin) and
+        elif ((app.widthMargin < cx < (app.widthMargin + app.maxWidth) / 3) and
             (app.heightMargin * 0.25 + app.maxHeight < cy 
             < app.heightMargin + app.maxHeight)):
 
             #Play puzzle
-            main.playPuzzle(app.selectedFile, app.algorithm)
+            main.playPuzzle(app.selectedFile, app.algorithm, 0)
+
+        elif (((2 * app.widthMargin + app.maxWidth) / 3 < cx < 
+        2 * (((app.widthMargin / 2 + app.maxWidth) / 3))) and
+            (app.heightMargin * 0.25 + app.maxHeight < cy 
+            < app.heightMargin + app.maxHeight)):
+
+            #Play puzzle
+            main.playPuzzle(app.selectedFile, app.algorithm, 1)
+
+        elif ((app.widthMargin < cx < app.width) and
+            (2 * ((app.widthMargin + app.maxWidth) / 3) < cy 
+            < app.heightMargin + app.maxHeight)):
+
+            #Play puzzle
+            main.playPuzzle(app.selectedFile, app.algorithm, 2)
+
+
+        # canvas.create_rectangle(app.widthMargin, 
+        # app.heightMargin * 0.25 + app.maxHeight, 
+        # (app.widthMargin + app.maxWidth) / 3, app.heightMargin + app.maxHeight, 
+        # fill="#382985", outline="#382985")
+
+        # canvas.create_rectangle((2 * app.widthMargin + app.maxWidth) / 3, 
+        # app.heightMargin * 0.25 + app.maxHeight, 
+        # 2 * (((app.widthMargin / 2 + app.maxWidth) / 3)), app.heightMargin + app.maxHeight, 
+        # fill="#382985", outline="#382985")
+
+        # canvas.create_rectangle(2 * ((app.widthMargin + app.maxWidth) / 3), 
+        # app.heightMargin * 0.25 + app.maxHeight, 
+        # app.maxWidth, app.heightMargin + app.maxHeight, fill="#382985", outline="#382985")
+
+
 
     #Otherwise check for clicks in smaller photo stage
     else:
@@ -139,6 +177,9 @@ def mousePressed(app, event):
 #Draws start menu on the canvas
 def redrawAll(app, canvas):
 
+    #Background
+    canvas.create_rectangle(0, 0, app.width, app.height, fill="#cce0ff", outline="#cce0ff")
+
     #Main menu text
     canvas.create_text(app.width / 2, app.heightMargin, text="Main Menu", fill="black",
         font=app.titleFont)
@@ -154,12 +195,39 @@ def redrawAll(app, canvas):
             image=ImageTk.PhotoImage(app.photo))
 
         #Play button
-        canvas.create_rectangle(app.widthMargin, app.heightMargin * 0.25 + app.maxHeight, 
-        app.maxWidth, app.heightMargin + app.maxHeight, fill="purple", outline="purple")
+        canvas.create_rectangle(app.widthMargin, 
+        app.heightMargin * 0.25 + app.maxHeight, 
+        (app.widthMargin + app.maxWidth) / 3, app.heightMargin + app.maxHeight, 
+        fill="#382985", outline="#382985")
 
-        canvas.create_text(app.width / 2, (app.maxHeight  + app.heightMargin * 0.25)  + 
+        canvas.create_text((app.widthMargin + (app.widthMargin  + app.maxWidth) / 3) / 2, 
+        (app.maxHeight  + app.heightMargin * 0.25)  + 
         ((app.heightMargin + app.maxHeight) - (app.heightMargin * 0.25 + app.maxHeight)) / 2, 
-        text="Play", fill="white", font=app.font)
+        text="Easy", fill="white", font=app.font)
+
+        canvas.create_text((app.widthMargin + (app.widthMargin + app.maxWidth) / 3) / 2, 
+        app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, fill="red")
+
+        canvas.create_rectangle((2 * app.widthMargin + app.maxWidth) / 3, 
+        app.heightMargin * 0.25 + app.maxHeight, 
+        2 * (((app.widthMargin / 2 + app.maxWidth) / 3)), app.heightMargin + app.maxHeight, 
+        fill="#382985", outline="#382985")
+
+        canvas.create_text(((app.widthMargin + app.maxWidth) / 3 + 
+        2 * ((app.widthMargin + app.maxWidth) / 3)) / 2, 
+        (app.maxHeight  + app.heightMargin * 0.25)  + 
+        ((app.heightMargin + app.maxHeight) - (app.heightMargin * 0.25 + app.maxHeight)) / 2, 
+        text="Medium", fill="white", font=app.font)
+
+        canvas.create_rectangle(2 * ((app.widthMargin + app.maxWidth) / 3), 
+        app.heightMargin * 0.25 + app.maxHeight, 
+        app.maxWidth, app.heightMargin + app.maxHeight, fill="#382985", outline="#382985")
+
+        canvas.create_text((2 * ((app.widthMargin + app.maxWidth) / 3) + app.maxWidth) / 2, 
+        (app.maxHeight  + app.heightMargin * 0.25)  + 
+        ((app.heightMargin + app.maxHeight) - (app.heightMargin * 0.25 + app.maxHeight)) / 2, 
+        text="Hard", fill="white", font=app.font)
+
 
     else:
         #Photo stage
@@ -170,22 +238,50 @@ def redrawAll(app, canvas):
         app.heightMargin + (app.maxHeight - app.heightMargin) / 2,
         text="Click to upload photo", fill="white", font=app.font)
         
-        #Play button
+        #Play buttons
         canvas.create_rectangle(app.widthMargin, 
         app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, 
-        app.maxWidth, app.maxHeight, fill="gray", outline="gray")
+        (app.widthMargin + app.maxWidth) / 3, app.maxHeight, fill="gray", outline="gray")
 
-        canvas.create_text(app.width / 2, 
+        canvas.create_text((app.widthMargin + (app.widthMargin  + app.maxWidth) / 3) / 2, 
         (app.maxHeight - app.heightMargin * 1.5 + app.heightMargin * 0.25)  + 
         ((app.maxHeight) - 
         (app.heightMargin * 0.25 + app.maxHeight - app.heightMargin * 2)) / 2, 
-        text="Play", fill="black", font=app.font)
+        text="Easy", fill="black", font=app.font)
+
+        canvas.create_text((app.widthMargin + (app.widthMargin + app.maxWidth) / 3) / 2, 
+        app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, fill="red")
+
+        canvas.create_rectangle((2 * app.widthMargin + app.maxWidth) / 3, 
+        app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, 
+        2 * (((app.widthMargin / 2 + app.maxWidth) / 3)), app.maxHeight, 
+        fill="gray", outline="gray")
+
+        canvas.create_text(((app.widthMargin + app.maxWidth) / 3 + 
+        2 * ((app.widthMargin + app.maxWidth) / 3)) / 2, 
+        (app.maxHeight - app.heightMargin * 1.5 + app.heightMargin * 0.25)  + 
+        ((app.maxHeight) - 
+        (app.heightMargin * 0.25 + app.maxHeight - app.heightMargin * 2)) / 2, 
+        text="Medium", fill="black", font=app.font)
+
+        canvas.create_rectangle(2 * ((app.widthMargin + app.maxWidth) / 3), 
+        app.heightMargin * 0.25 + app.maxHeight - app.heightMargin, 
+        app.maxWidth, app.maxHeight, fill="gray", outline="gray")
+
+        canvas.create_text((2 * ((app.widthMargin + app.maxWidth) / 3) + app.maxWidth) / 2, 
+        (app.maxHeight - app.heightMargin * 1.5 + app.heightMargin * 0.25)  + 
+        ((app.maxHeight) - 
+        (app.heightMargin * 0.25 + app.maxHeight - app.heightMargin * 2)) / 2, 
+        text="Hard", fill="black", font=app.font)
+
+        canvas.create_text(app.width // 2, app.height // 2 - 3.25 * app.heightMargin, 
+        text=app.errorText, fill="red", font=app.errorFont)
 
     
     #Algorithm toggle
     canvas.create_rectangle(app.widthMargin * 2, 
         app.height - app.heightMargin * 1.5, 
-        app.maxWidth - app.widthMargin, app.height - app.heightMargin, fill="purple", outline="purple")
+        app.maxWidth - app.widthMargin, app.height - app.heightMargin, fill="#382985", outline="#382985")
 
     if (not app.algorithm):
         canvas.create_text(app.width / 2, app.height - (app.heightMargin + app.heightMargin * 1.5) / 2, 
@@ -203,4 +299,12 @@ def playGame():
 playGame()
 
 
-#Add algorithm toggle
+#Explanation/tutorial X
+#Too many blocks - have different modes (easier mode) X
+#Create your own palette X
+
+#List of features, one line describing implementation and complexity
+
+#Maybe filters for simplicity - blur until hints work
+#Export solution/screenshot
+#Error text

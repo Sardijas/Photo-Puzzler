@@ -1,6 +1,7 @@
 from collections import Counter
 from PIL import Image
 from PIL import ImageColor
+import tkinter.font
 import math, copy, random, time, tkinter
 import requests
 import cv2 as cv
@@ -10,6 +11,8 @@ import numpy as np
 from colorthief import ColorThief
 
 from cmu_112_graphics import *
+
+import menu
 
 # Credit for inspiration and debugging tips:
 # Xinyi Luo, Lauren Sands, Cole Savage, 
@@ -24,6 +27,22 @@ def appStarted(app):
     app.maxWidth = app.width - 2 * app.widthMargin
     app.maxHeight = app.height - 2 * app.heightMargin
 
+    #Mode init
+    if (app.myMode == 0):
+        app.rows = 20
+        app.cols = 15
+        app.paletteSize = 4
+
+    elif (app.myMode == 1):
+        app.rows = 30
+        app.cols = 25
+        app.paletteSize = 5
+
+    else:
+        app.rows = 40
+        app.cols = 35
+        app.paletteSize = 7
+
     #Photo init
     #Reference:
     # https://www.cs.cmu.edu/~112/notes/notes-animations-part4.html#loadImageUsingFile
@@ -32,7 +51,6 @@ def appStarted(app):
     app.photo = Image.fromarray(app.photoArray)
 
     #Palette init
-    app.paletteSize = 5
 
     if (not app.algorithm):
         app.palette = getPaletteMedianCut(app)
@@ -48,8 +66,8 @@ def appStarted(app):
 
     #Maybe make this controllable, max 48/48
     #Set up grid
-    app.rows = 30
-    app.cols = 25
+
+
     app.answerGrid = getGrid(app)
     app.solutionGrid = getSolution(app)
     app.emptyGrid = getGrid(app)
@@ -81,6 +99,11 @@ def appStarted(app):
 
     #Solve init
     app.isSolve = False
+
+    #Selected hint font
+    # https://docs.python.org/3/library/tkinter.font.html
+    # https://www.tutorialspoint.com/modify-the-default-font-in-python-tkinter#:~:text=Running%20the%20above%20code%20will,widgets%20that%20uses%20textual%20information
+    app.font = tkinter.font.Font(family='Lucida', size=16, weight='bold')
 
 
 #Image processing ##########################################################################
@@ -505,6 +528,12 @@ def mousePressed(app, event):
         app.answerGrid = getGrid(app)
         syncHints(app, 0, 0)
 
+    #If the user clicked the menu button, goes to the main menu
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 + 2 * app.heightMargin < cy < 3 * app.heightMargin - app.heightMargin / 4)):
+        print("fuck")
+        menu.playGame() 
+
     #Otherwise try paint. Don't paint after win
     elif (not app.isWin):
         paint(app, cx, cy, False)
@@ -763,7 +792,10 @@ def drawHints(app, canvas):
         for hint in showRowHints[i]:
             x1 = app.widthMargin - rowHintWidth * hintCount - rowHintWidth // 2
 
-            canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
+            if (hint[0] == app.brushColor):
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0], font=app.font)
+            else:
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
 
             hintCount += 1
     
@@ -776,7 +808,10 @@ def drawHints(app, canvas):
         for hint in showColHints[i]:
             y1 = app.heightMargin - colHintHeight * hintCount - colHintHeight // 2
 
-            canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
+            if (hint[0] == app.brushColor):
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0], font=app.font)
+            else:
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
 
             hintCount += 1
 
@@ -979,7 +1014,6 @@ def getNextSquare(app):
     for i in range(app.rows):
             for j in range(app.cols):
                 if (app.answerGrid[i][j] == None):
-                    # print(i, j)
                     return (i, j)
 
 
@@ -1003,7 +1037,7 @@ def redrawAll(app, canvas):
     #Draw solve button
     canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
         app.heightMargin / 4, app.width - app.widthMargin / 4,
-        app.heightMargin - app.heightMargin / 4, fill="purple", outline="purple")
+        app.heightMargin - app.heightMargin / 4, fill="#382985", outline="#382985")
     canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2, text="Solve", fill="white")
 
     #Draw reset button
@@ -1012,6 +1046,14 @@ def redrawAll(app, canvas):
         2 * app.heightMargin - app.heightMargin / 4, fill="red", outline="red")
     canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2 + app.heightMargin, 
         text="Reset", fill="white")
+
+    #Draw menu button
+    canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4 + 2*app.heightMargin, app.width - app.widthMargin / 4,
+        3 * app.heightMargin - app.heightMargin / 4, fill="blue", outline="blue")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2 + 2*app.heightMargin, 
+        text="Menu", fill="white")
+
 
 
     #Draw win state
@@ -1027,8 +1069,8 @@ def redrawAll(app, canvas):
 
         canvas.create_text(app.width // 2, app.height // 2, text="YOU WIN!", fill="black", font=app.titleFont)
 
-def playPuzzle(file, alg):
-    runApp(width=800, height=850, filename=file, algorithm=alg)
+def playPuzzle(file, alg, mod):
+    runApp(width=800, height=850, filename=file, algorithm=alg, mode=mod)
     
 
 
@@ -1040,8 +1082,6 @@ def playPuzzle(file, alg):
 # - blur? simulate process would be complex w/ gaussian, maybe 5 or 6 filters
 #Maybe get grid and things to resize and move
 #Goal: solver by MVP (even bad solver)
-#Clues disappear - on click? automatically?
-
 
 
 
