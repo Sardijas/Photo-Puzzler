@@ -1,5 +1,7 @@
+from collections import Counter
 from PIL import Image
 from PIL import ImageColor
+import tkinter.font
 import math, copy, random, time, tkinter
 import requests
 import cv2 as cv
@@ -9,6 +11,8 @@ import numpy as np
 from colorthief import ColorThief
 
 from cmu_112_graphics import *
+
+import menu
 
 # Credit for inspiration and debugging tips:
 # Xinyi Luo, Lauren Sands, Cole Savage, 
@@ -23,15 +27,41 @@ def appStarted(app):
     app.maxWidth = app.width - 2 * app.widthMargin
     app.maxHeight = app.height - 2 * app.heightMargin
 
+    #Mode init
+    if (app.myMode == 0):
+        app.rows = 20
+        app.cols = 15
+        app.paletteSize = 4
+        app.rawPhoto = cv.imread(app.filename)
+
+    elif (app.myMode == 1):
+        app.rows = 30
+        app.cols = 25
+        app.paletteSize = 5
+        app.rawPhoto = cv.imread(app.filename)
+
+    elif (app.myMode == 2):
+        app.rows = 40
+        app.cols = 35
+        app.paletteSize = 7
+        app.rawPhoto = cv.imread(app.filename)
+
+    else:
+        app.rows = 55
+        app.cols = 50
+        app.paletteSize = 8
+        #In this case filename input from menu is rawPhoto
+        #Temporarily convert to BGR
+        app.rawPhoto = cv.cvtColor(app.filename, cv.COLOR_BGR2RGB)
+
+
     #Photo init
     #Reference:
     # https://www.cs.cmu.edu/~112/notes/notes-animations-part4.html#loadImageUsingFile
-    app.rawPhoto = cv.imread(app.filename)
     app.photoArray = resizeImage(app)
     app.photo = Image.fromarray(app.photoArray)
 
     #Palette init
-    app.paletteSize = 5
 
     if (not app.algorithm):
         app.palette = getPaletteMedianCut(app)
@@ -47,8 +77,8 @@ def appStarted(app):
 
     #Maybe make this controllable, max 48/48
     #Set up grid
-    app.rows = 30
-    app.cols = 25
+
+
     app.answerGrid = getGrid(app)
     app.solutionGrid = getSolution(app)
     app.emptyGrid = getGrid(app)
@@ -59,9 +89,6 @@ def appStarted(app):
     #Final palette init
     app.radius = (app.heightMargin * (2/3)) / 2
     app.colorData = placeColors(app)
-
-    #gradient in a pixel
-    #Gaussian blur??
 
     #Hints init
     app.hintRows, app.hintCols, app.hRSorted, app.hCSorted = getHints(app)
@@ -78,6 +105,19 @@ def appStarted(app):
     app.blurredImage = Image.fromarray(app.blurredImageArray)
     app.titleFont = tkinter.font.Font(family='Helvetica', size=48, weight='bold')
 
+    #Solve init
+    app.isSolve = False
+
+    #Hint Fonts
+    # References:
+    # https://docs.python.org/3/library/tkinter.font.html
+    # https://www.tutorialspoint.com/modify-the-default-font-in-python-tkinter#:~:text=Running%20the%20above%20code%20will,widgets%20that%20uses%20textual%20information
+    app.font = tkinter.font.Font(family='Lucida', size=16, weight='bold')
+    app.smallFont = tkinter.font.Font(family='Lucida', size=10)
+
+    #Tutorial init
+    app.isTutorial = False
+
 
 #Image processing ##########################################################################
 
@@ -90,6 +130,7 @@ def blurImage(app):
     blurredImage = cv.GaussianBlur(rgbImage, (21, 21), 0)
 
     return blurredImage
+
 
 #Resizes an image to fit puzzle gameboard area
 #References:
@@ -164,6 +205,7 @@ def trimPalette(app):
     
     app.usedPalette = list(colorSet)
 
+
 #Gets a palette of rgb colors from a palette of hex colors
 def getRgbPalette(palette):
     rgbPalette = []
@@ -187,6 +229,7 @@ def getPaletteMedianCut(app):
     palette = medianCut(np.array(bucket), 3)
 
     return palette
+
 
 #Gets palette using module modified median cut algorithm 
 # for comparison to regular median cut algorithm
@@ -217,6 +260,11 @@ def getRandomPalette(app):
     for color in (request.json())['result']:
         palette.append(rgbToHex(color))
 
+    if (app.paletteSize > 5):
+        request = requests.post(url, json=param)
+        for color in (request.json())['result']:
+            palette.append(rgbToHex(color))
+
     #Adjust solution and answer grids to match new palette
     usedPalette = adjustGrid(app, palette)
 
@@ -224,8 +272,9 @@ def getRandomPalette(app):
     app.palette = palette
     app.usedPalette = set(usedPalette)
     app.colorData = placeColors(app)
-
-    #Note: Ask if this function is too destructive
+    #Reset hints to match new palette
+    app.hintRows, app.hintCols, app.hRSorted, app.hCSorted = getHints(app)
+    syncHints(app, 0, 0)
     
 
 #Adjusts the colors in solutionGrid and answerGrid to match the
@@ -411,6 +460,7 @@ def getCell(app, row, col):
 
     return cell
 
+
 #Get closest palette color to a provided color
 def getClosestColor(red, green, blue, palette):
 
@@ -477,18 +527,45 @@ def mousePressed(app, event):
     cx = event.x
     cy = event.y
 
-    #Don't paint after win
-    if (not app.isWin):
-
-        #If the user clicked the shuffle palette button, shuffle the palette
-        if ((app.widthMargin / 4 < cx < app.widthMargin - app.widthMargin / 4)
+    #If the user is in the tutorial and clicks the exit button, closes the tutorial
+    if (app.isTutorial and 
+        (app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
         and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
+        app.isTutorial = False
 
-            getRandomPalette(app)
+    #If the user clicked the shuffle palette button, shuffle the palette
+    elif ((app.widthMargin / 4 < cx < app.widthMargin - app.widthMargin / 4)
+    and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
 
-        #Otherwise try paint
-        else:
-            paint(app, cx, cy, False)
+        getRandomPalette(app)
+
+    #If the user clicked the solve button, solves the puzzle
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 < cy < app.heightMargin - app.heightMargin / 4)):
+
+        solve(app)
+
+    #If the user clicked the reset button, resets the puzzle
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 + app.heightMargin < cy < 2 * app.heightMargin - app.heightMargin / 4)):
+
+        app.isWin, app.isSolve = False, False
+        app.answerGrid = getGrid(app)
+        syncHints(app, 0, 0)
+
+    #If the user clicked the menu button, goes to the main menu
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 + 2 * app.heightMargin < cy < 3 * app.heightMargin - app.heightMargin / 4)):
+        menu.playGame() 
+
+    #If the user clicked the tutorial button, opens the tutorial
+    elif ((app.width - app.widthMargin + app.widthMargin / 4 < cx < app.width - app.widthMargin / 4)
+    and (app.heightMargin / 4 + 3 * app.heightMargin < cy < 4 * app.heightMargin - app.heightMargin / 4)):
+        app.isTutorial = True
+
+    #Otherwise try paint. Don't paint after win
+    elif (not app.isWin):
+        paint(app, cx, cy, False)
 
 
 #Handles painting-related clicks 
@@ -533,6 +610,7 @@ def paint(app, cx, cy, drag):
     #Check for win state
     if (app.answerGrid == app.solutionGrid):
         app.isWin = True
+
 
 #Checks for incorrectly painted cells
 def verify(app):
@@ -604,7 +682,6 @@ def getHints(app):
         #[currentColColor, currentColCount, startRow]
         colHelper.append([None, 0, 0])
 
-
     for row in range(app.rows):
         #Initializes row hint data
         currentRowColor, currentRowCount, startCol = None, 0, 0
@@ -656,7 +733,6 @@ def getHints(app):
         random.shuffle(rowCollector)
         hintRows.append(rowCollector)
 
-
     #Save original ordered hintCols to hintColsSorted to be used in syncHints
     hintColsSorted = copy.deepcopy(hintCols)
 
@@ -666,7 +742,6 @@ def getHints(app):
 
     return hintRows, hintCols, hintRowsSorted, hintColsSorted
 
-    #33 - cut 3 lines
 
 #Shows unsolved hints and disappears solved hints
 def syncHints(app, row, col):
@@ -703,6 +778,7 @@ def syncHints(app, row, col):
             else:
                 hint[3] = 1
 
+
 #Draws hints
 def drawHints(app, canvas):
 
@@ -713,7 +789,9 @@ def drawHints(app, canvas):
     for row in app.hintRows:
         rowCollector = []
         for hint in row:
-            if (hint[3] == 1):
+            if (hint[3] == 1 and app.myMode != 3):
+                rowCollector.append(hint)
+            elif (hint[3] == 1 and app.myMode == 3 and hint[0] == app.brushColor):
                 rowCollector.append(hint)
 
         showRowHints.append(rowCollector)
@@ -722,7 +800,9 @@ def drawHints(app, canvas):
     for col in app.hintCols:
         colCollector = []
         for hint in col:
-            if (hint[3] == 1):
+            if (hint[3] == 1 and app.myMode != 3):
+                colCollector.append(hint)
+            elif (hint[3] == 1 and app.myMode == 3 and hint[0] == app.brushColor):
                 colCollector.append(hint)
 
         showColHints.append(colCollector)
@@ -744,7 +824,12 @@ def drawHints(app, canvas):
         for hint in showRowHints[i]:
             x1 = app.widthMargin - rowHintWidth * hintCount - rowHintWidth // 2
 
-            canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
+            if (hint[0] == app.brushColor and app.myMode == 3):
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0], font=app.smallFont)
+            elif (hint[0] == app.brushColor):
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0], font=app.font)
+            else:
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
 
             hintCount += 1
     
@@ -757,7 +842,12 @@ def drawHints(app, canvas):
         for hint in showColHints[i]:
             y1 = app.heightMargin - colHintHeight * hintCount - colHintHeight // 2
 
-            canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
+            if (hint[0] == app.brushColor and app.myMode == 3):
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0], font=app.smallFont)
+            elif (hint[0] == app.brushColor):
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0], font=app.font)
+            else:
+                canvas.create_text(x1, y1, text=hint[1], fill=hint[0])
 
             hintCount += 1
 
@@ -788,12 +878,113 @@ def placeColors(app):
 
     return colorData
 
+
 #Draws color buckets
 def drawColors(app, canvas):
 
     for color in app.colorData:
         canvas.create_oval(color[0], color[1], color[2], color[3], fill=color[4])
 
+#Solver#########################################################################
+
+#Speeds up solver by making color placement deductions using hints
+def deduce(app):
+    canDeduce = True
+
+    while (canDeduce):
+        canDeduce = False
+        unsolvedRows = []
+        unsolvedCols = []
+
+        for row in app.hintRows:
+            currentRow = []
+            for hint in row:
+                if (hint[3] == 1):
+                    currentRow.append(hint)
+            unsolvedRows.append(currentRow)
+
+        for col in app.hintCols:
+            currentCol = []
+            for hint in col:
+                if (hint[3] == 1):
+                    currentCol.append(hint)
+            unsolvedCols.append(currentCol)
+
+        #Only-one-color-left deductions
+        for hints in unsolvedRows:
+            if (len(hints) == 1):
+                canDeduce = True
+                color = hints[0][0]
+                count = hints[0][1]
+                start = hints[0][2]
+
+                for i in range(count):
+                    app.answerGrid[unsolvedRows.index(hints)][start + i] = color
+                
+        for hints in unsolvedCols:
+            if (len(hints) == 1):
+                canDeduce = True
+                color = hints[0][0]
+                count = hints[0][1]
+                start = hints[0][2]
+
+                for i in range(count):
+                    app.answerGrid[start + i][unsolvedCols.index(hints)] = color
+
+        #Size deductions
+        for hints in unsolvedRows:
+            for hint in hints:
+                color = hint[0]
+                count = hint[1]
+                if (count > app.cols // 2):
+                    for i in range(app.cols - (app.cols - count) * 2):
+                        if (app.answerGrid[unsolvedRows.index(hints)][(app.cols - count) + i] == None):
+                            canDeduce = True
+
+                        app.answerGrid[unsolvedRows.index(hints)][(app.cols - count) + i] = color
+
+        syncHints(app, 0, 0)
+
+
+#Solves a puzzle with a part brute-force, part deduction algorithm
+def solve(app):
+
+    while (not app.isWin):
+
+        #First, make deductions
+        deduce(app)
+
+        #Brute force next square
+        coordinates = getNextSquare(app)
+
+        if (coordinates != None):
+            for color in app.usedPalette:
+                if (app.answerGrid[coordinates[0]][coordinates[1]] == None):
+                    app.answerGrid[coordinates[0]][coordinates[1]] = color
+
+                    verify(app)
+
+                    if ((coordinates[0], coordinates[1]) not in app.errors):
+                        continue
+                    
+                    app.answerGrid[coordinates[0]][coordinates[1]] = None
+
+        #Update hints
+        syncHints(app, 0, 0)
+
+        #Once the puzzle has been solved, end the loop
+        if (app.answerGrid == app.solutionGrid):
+            app.isWin = True
+            app.isSolve = True
+
+        
+#Get the next unpainted square in the answer grid
+def getNextSquare(app):
+    for i in range(app.rows):
+            for j in range(app.cols):
+                if (app.answerGrid[i][j] == None):
+                    return (i, j)
+    
 
 #Draw##############################################################################
 
@@ -811,8 +1002,116 @@ def redrawAll(app, canvas):
         app.heightMargin - app.heightMargin / 4, fill="orange", outline="orange")
     canvas.create_text(app.widthMargin / 2, app.heightMargin / 2, text="Shuffle", fill="white")
 
+    #Draw solve button
+    canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4, app.width - app.widthMargin / 4,
+        app.heightMargin - app.heightMargin / 4, fill="#382985", outline="#382985")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2, text="Solve", fill="white")
+
+    #Draw reset button
+    canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4 + app.heightMargin, app.width - app.widthMargin / 4,
+        2 * app.heightMargin - app.heightMargin / 4, fill="red", outline="red")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2 + app.heightMargin, 
+        text="Reset", fill="white")
+
+    #Draw menu button
+    canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4 + 2*app.heightMargin, app.width - app.widthMargin / 4,
+        3 * app.heightMargin - app.heightMargin / 4, fill="blue", outline="blue")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2 + 2*app.heightMargin, 
+        text="Menu", fill="white")
+
+    #Draw tutorial button
+    canvas.create_rectangle(app.width - app.widthMargin + app.widthMargin / 4, 
+        app.heightMargin / 4 + 3*app.heightMargin, app.width - app.widthMargin / 4,
+        4 * app.heightMargin - app.heightMargin / 4, fill="green", outline="green")
+    canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2 + 3*app.heightMargin, 
+        text="Help", fill="white")
+
+
+    #Draw tutorial
+    if (app.isTutorial):
+        #Background
+        canvas.create_rectangle(0, 0, app.width, app.height, fill="#cce0ff", outline="#cce0ff")
+
+        #Title
+        canvas.create_text(app.width // 2, app.heightMargin // 2, text="Tutorial",
+        fill="black", font=app.titleFont)
+
+        #Instructions
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin, 
+        text="Click on one of the buckets at the bottom of the screen to select a color", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 1.25, 
+        text="Click or drag on the game grid to paint squares and reveal a hidden picture", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 1.5, 
+        text="Click a painted square with the same color to erase", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 1.75, 
+        text="Incorrectly painted squares will be highlighted in red", 
+        fill="black", font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 2.5, 
+        text="There are hints for colors in both columns and rows", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 2.75, 
+        text="After clicking on a bucket, corresponding hints will be bolded", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 3.5, 
+        text="Row hints display runs of a certain color in a certain row", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 3.75, 
+        text="For example, a green 10 means that there is a run of 10 green squares in that row", 
+        fill="black", font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 4, 
+        text="Column hints display runs of a certain color in a certain column", fill="black",
+        font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 4.25, 
+        text="Using these hints, you can figure out what color goes in which square to solve the puzzle", 
+        fill="black", font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 4.75, 
+        text="But beware! Rows with more than 5 distinct color runs and columns with more than 4", 
+        fill="black", font=app.font)
+
+        canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 5, 
+        text="distinct color runs may have hidden hints. You must solve the puzzle further to reveal these hints.", 
+        fill="black", font=app.font)
+
+        #Draw exit button
+        canvas.create_rectangle( app.width - app.widthMargin + app.widthMargin / 4, 
+            app.heightMargin / 4, app.width - app.widthMargin / 4,
+            app.heightMargin - app.heightMargin / 4, fill="red", outline="red")
+        canvas.create_text(app.width - app.widthMargin / 2, app.heightMargin / 2, text="Exit", fill="white")
+
+        #Draw additional artist mode tutorial notes
+        if (app.myMode == 3):
+            canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 6, 
+        text="You are playing in artist mode! Congratulations for daring the challenge.", 
+        fill="red", font=app.font)
+
+            canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 6.5, 
+        text="Artist mode has one special feature designed to make it especially difficult:", 
+        fill="red", font=app.font)
+        
+            canvas.create_text(app.width // 2, app.heightMargin // 2 + app.heightMargin * 6.75, 
+        text="When you click on a bucket, only the hints corresponding to that color will show up", 
+        fill="red", font=app.font)
+
+
+
     #Draw win state
-    if (app.isWin):
+    if (app.isWin and not app.isSolve):
         canvas.create_image(app.width // 2, app.height // 2, image=ImageTk.PhotoImage(app.blurredImage))
 
         drawGrid(app, canvas, app.emptyGrid)
@@ -824,22 +1123,14 @@ def redrawAll(app, canvas):
 
         canvas.create_text(app.width // 2, app.height // 2, text="YOU WIN!", fill="black", font=app.titleFont)
 
-def playPuzzle(file, alg):
-    runApp(width=800, height=850, filename=file, algorithm=alg)
+    #Draw artwork title, artist name if in artist mode
+    if (app.isWin and app.myMode == 3):
+        canvas.create_text(app.width / 2, 6 * (app.heightMargin / 16), text=app.json['items'][0]['titles'][0]['title'],
+            fill="black", font=app.font)
+        canvas.create_text(app.width / 2, 10 * (app.heightMargin / 16), text=app.json['items'][0]['artist'][0],
+            fill="black", font=app.font)
+
+
+def playPuzzle(file, alg, mod, artJson):
+    runApp(width=800, height=850, filename=file, algorithm=alg, mode=mod, json=artJson)
     
-
-
-
-
-
-#Notes
-#win-state: gridlines disappear? de-pixelize to become regular picture 
-# - blur? simulate process would be complex w/ gaussian, maybe 5 or 6 filters
-#Maybe get grid and things to resize and move
-#Goal: solver by MVP (even bad solver)
-#Clues disappear - on click? automatically?
-
-
-
-
-#Check numpy to make things quicker, loop through board and check neigbors

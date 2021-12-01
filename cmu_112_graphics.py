@@ -267,7 +267,8 @@ class App(object):
     # Implementation:
     ####################################
 
-    def __init__(app, width=300, height=300, x=0, y=0, title=None, autorun=True, mvcCheck=True, logDrawingCalls=True, filename=nonzero, algorithm=False):
+    def __init__(app, width=300, height=300, x=0, y=0, title=None, autorun=True, mvcCheck=True, logDrawingCalls=True, 
+    filename=nonzero, algorithm=False, mode=1, json = None):
         app.winx, app.winy, app.width, app.height = x, y, width, height
         app.timerDelay = 100     # milliseconds
         app.mouseMovedDelay = 50 # ditto
@@ -280,6 +281,8 @@ class App(object):
         #My edits here!!!!!!!!!!
         app.filename = filename
         app.algorithm = algorithm
+        app.myMode = mode
+        app.json = json
 
         if autorun: app.run()
 
